@@ -1,0 +1,722 @@
+library(Seurat)
+library(ggplot2)
+library(cowplot)
+library(ggpubr)
+library(patchwork)
+library(glue)
+library(tidyverse)
+library(ggh4x)
+library(ggfun)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(dplyr)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(STdeconvolve)
+library(png)
+library(ComplexHeatmap)
+library(circlize)
+library(scater)
+library(ggforce)
+library(reshape2)
+library(spacexr)
+library(msigdbr)
+library(org.Mm.eg.db)
+library(wesanderson)
+library(grid)
+library(tidyr)
+library(rstatix)
+library(decoupleR)
+library(tibble)
+library(plotly)
+library(htmlwidgets)
+library(progeny)
+library(viridis)
+library(SeuratData)
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+
+#Figure 6A
+{
+  scRNA_subh<-All_FB
+  scRNA_subh= All_FB[,All_FB@meta.data$sample_group %in% c("S","W1", "W7","W30")]
+  scRNA_subh= scRNA_subh[,scRNA_subh@meta.data$celltype %in% c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb","CTHRC1+ Fb","PI16+ Fb")]
+
+  celltype <- data.frame(
+    ClusterID = c("S", "W1", "W7", "W30"),
+    celltype = c("S", "W1", "W7", "W30"),
+    check.names = FALSE
+  )
+
+
+  scRNA_subh@meta.data$sample_group = "NA"
+
+  for(i in 1:nrow(celltype)){
+    scRNA_subh@meta.data[which(scRNA_subh@meta.data$sample_group2 == celltype$ClusterID[i]),'sample_group'] <- celltype$celltype[i]}
+
+  group_counts <- table(scRNA_subh@meta.data$sample_group)
+  groups_to_subset <- names(group_counts[group_counts >= 900])
+
+  selected_cells <- c()
+
+  for (group in groups_to_subset) {
+    group_cells <- rownames(scRNA_subh@meta.data[scRNA_subh@meta.data$sample_group == group, ])
+    sampled_cells <- sample(group_cells, 900)
+    selected_cells <- c(selected_cells, sampled_cells)
+  }
+  scRNA_subh <- subset(scRNA_subh, cells = selected_cells)
+  count_table<-table(scRNA_subh@meta.data[,"sample_group"],scRNA_subh@meta.data[,"celltype"])
+
+  Cellratio <- as.data.frame(count_table)
+  Cellratio$Var2 <- factor(Cellratio$Var2, levels = c( "TNFAIP6+ Fb", "MMP1+ Fb","CTHRC1+ Fb", "PI16+ Fb", "CCL19+ Fb"))
+  p3 <- ggplot(Cellratio, aes(x = Var2, y = Freq, fill = Var1)) +
+    geom_bar(position = "fill", stat = "identity", alpha = 0.7) +
+    theme_bw() +
+    coord_flip() +
+    ylab("Fraction of cells in each sample") +
+    xlab("Samples") +
+    scale_fill_manual(values = col) + 
+    theme(
+      axis.title.x = element_text(size = 15, face = "bold"),
+      axis.text.x = element_text(size = 15, face = "bold", angle = 0, hjust = 0.5),
+      axis.text.y = element_text(size = 15, face = "bold"),
+      axis.title.y = element_text(size = 15, face = "bold"),
+      legend.title = element_text(size = 22, face = "bold"),
+      legend.text = element_text(size = 22, face = "bold"),
+      legend.position = "bottom",
+      legend.spacing.x = unit(5, "cm"), 
+      legend.spacing.y = unit(5, "cm"), 
+      legend.box.just = "top" 
+    )
+  ggsave("Figure5/cell_ratio_all.svg", p3, width=4 ,height=3)
+}
+
+
+
+#Figure 6E-F
+{
+  sds <- SlingshotDataSet(sim)
+  lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
+    curve_data <- slingCurves(sds)[[i]]
+    as.data.frame(curve_data$s) %>% 
+      setNames(c("UMAP1", "UMAP2")) %>%
+      mutate(lineage = i)
+  }) %>% bind_rows()
+  
+  p <- ggplot(umap_data, aes(x = UMAP1, y = UMAP2)) +
+    geom_point(aes(color = I(color)), size = 1.5, alpha = 0.8)  +
+    geom_path(data = lineage_data, aes(x = UMAP1, y = UMAP2, group = lineage, 
+                                       color = factor(lineage)), size = 1.5) +
+    scale_color_manual(name = "Lineages", 
+                       values = c(brewer.pal(8, "Set1"), "#999999"),
+                       labels = paste0("Lineage ", 1:8)) +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.position = "right",
+      legend.title = element_text(size = 12, face = "bold"),
+      legend.text = element_text(size = 10),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +
+    labs(title = "Slingshot Trajectory Visualization",
+         x = "UMAP 1",
+         y = "UMAP 2") +
+    coord_fixed()
+  print(p)
+  ggsave(filename='figure6/slingPseudotime_6.SVG',p,width=9,height=5)
+  
+}
+
+#Figure 6G
+{
+  pbmc3k <- All_FB[,All_FB@meta.data$celltype %in% c("LRRC15+ Fb","MMP1+ Fb","TNFAIP6+ Fb","PI16+ Fb","CCL19+ Fb")]
+  celltype=read.csv('celltype_4-WOUND.csv')
+  pbmc3k@meta.data$celltype2<-pbmc3k@meta.data$celltype
+  pbmc3k@meta.data$celltype = "NA"
+
+  for(i in 1:nrow(celltype)){
+    pbmc3k@meta.data[which(pbmc3k@meta.data$celltype2 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+  
+  pathways <- list(
+    inflammation=c("NLRP3", "IL6", "TNF", "CRP", "IL10", "TLR4", "IL1B", "CXCL8", "NOD2", "SYK", "MEFV", "HLA-DRB1", "TGFB1", "IFNG", "CCL2", "NFKB1", "PTGS2", "HLA-B", "IL17A", "IL1RN", "IL4", "TNFRSF1A", "STAT3", "ELANE", "TLR2", "IL13", "CTLA4", "IL1A", "HMGB1", "PRTN3", "IL18", "ICAM1", "ALB", "PTPN22", "NFKBIA", "FASLG", "CFTR", "FOXP3", "MPO", "FAS", "TNFAIP3", "ADIPOQ", "MMP9", "PPARG", "IL5", "MIF", "IL2", "MVK", "VCAM1", "PSTPIP1", "IRAK1", "IL10RA", "ILRUN", "RNASE3", "STAT1", "CD40LG", "TLR3", "JAK1", "SAA1", "CCR1", "SELE", "ITGAM", "CCL5", "TLR7", "RIPK1", "MMP1", "STING1", "RELA", "CCL11", "IKBKG", "IL37", "CXCL10", "IL2RA", "IL10RB", "CSF2", "OTULIN", "INS", "IL1R1", "IL23R", "NOS2", "PIK3CD", "AKT1", "THBD", "AGER", "SPP1", "HMOX1", "IRF5", "PLG", "ITGB2", "NLRP1", "PDCD1", "STAT4", "RETN", "CYBB", "TP53", "NLRC4", "EGFR", "IKBKB", "CASP1")
+    ,fibrosis=c("COL6A3", "COL6A2", "COL6A1", "COL2A1", "COL1A1", "COL1A2", "COL3A1", "COL5A1", "CD36", "COL12A1", "COL7A1", "COL4A3", "COL4A5", "COL5A2", "COL4A1", "COL9A1", "COL4A4", "COL9A3", "COL11A1", "COL9A2", "COL17A1", "COL10A1", "COL11A2", "COL4A2", "COL18A1", "TGFB1", "GP6", "COL4A6", "MMP1", "COL5A3", "COL8A2", "SERPINH1", "COL14A1", "PLOD1", "CYP7B1", "COL15A1", "COL16A1", "COL8A1", "ELN", "ITGA2", "COL13A1", "COL27A1", "COL6A5", "TNF", "MMP9", "VWF", "FN1", "MMP2", "MMP13", "COLQ", "AMACR", "ADIPOQ", "COL20A1", "LOX", "DCN", "COLGALT1", "IL1B", "IL6", "TNXB", "COL6A6", "COL24A1", "P3H1", "SMAD3", "ADAMTS2", "ITGB1", "PLOD2", "SPARC", "COL26A1", "COL28A1", "BGLAP", "IGF1", "FBN1", "TGFBR1", "BMP1", "CTHRC1", "TGFB2", "BGN", "MMP3", "IL10", "PPIB", "C1QTNF3-AMACR", "IFNG", "CRTAP", "P4HA2", "P4HA1", "TGFBR2", "B4GALT7", "CBS", "TIMP1", "CCN2", "BMP6", "FGF2", "MAPK1", "EGF", "FKBP14", "TP53", "HBB", "DDR2", "PCNA", "INS")
+    ,matrix_remodeling=c("MMP9", "MMP2", "MMP1", "MMP3", "MMP14", "MMP13", "MMP7", "EFEMP1", "ECM1", "TGFB1", "TIMP1", "MMP8", "MMP12", "EFEMP2", "COMP", "FN1", "MEPE", "FBN1", "MMP10", "MMP16", "TIMP2", "ELN", "MMP11", "MAPK1", "MMP19", "DMP1", "MMP15", "MMP20", "CD36", "SMARCA4", "FREM1", "COL1A1", "MMP17", "FRAS1", "MGP", "TNC", "DCN", "FREM2", "MMP25", "VTN", "FREM3", "ITGB1", "MMP24", "SPARC", "SPP1", "BSG", "CD44", "MXRA5", "SMARCA5", "COL3A1", "COL2A1", "TNF", "TIMP3", "SMARCA2", "VEGFA", "ACAN", "MMP26", "MMP28", "SMARCC1", "SMARCB1", "VCAN", "MMP23B", "SOD3", "MXRA8", "SMARCC2", "MAPK3", "COL4A1", "SMARCD1", "COL1A2", "MMP27", "THBS1", "MXRA7", "CTSK", "IMPG1", "SMARCE1", "IL6", "SMARCA1", "MATN1", "EGFR", "PLAU", "IL1B", "APOE", "LTBP1", "MMP21", "TGFB2", "TGFB3", "SMARCD2", "FBLN1", "APP", "NID1", "BGLAP", "SERPINE1", "SMARCD3", "LAMC1", "PLG", "TGFBI", "COL5A1", "FBLN5", "HSPG2", "CTNNB1"))
+  
+  for (pathway_name in names(pathways)) {
+    pbmc3k <- AddModuleScore(
+      object = pbmc3k,
+      features = list(pathways[[pathway_name]]),
+      name = pathway_name
+    )
+  }
+
+  score_columns <- names(pbmc3k@meta.data)
+  score_columns <- gsub("1$", "", score_columns)
+  names(pbmc3k@meta.data) <- score_columns
+  
+  data_to_plot <- pbmc3k@meta.data[, c("celltype", names(pathways))]
+
+  long_data <- pivot_longer(data_to_plot, cols = -celltype, names_to = "Pathway", values_to = "Score")
+  subset_data <- long_data %>%
+    filter(Pathway == "inflammation")
+
+  ggsave(file="Figure5\\Violin_plot.svg",s,width =5,height = 3)
+  {
+    avg_scores_by_celltype <- aggregate(Score ~ celltype, data = subset_data, FUN = mean)
+    
+    avg_scores_by_celltype <- avg_scores_by_celltype[order(-avg_scores_by_celltype$Score), ]
+    
+    subset_data$celltype <- factor(subset_data$celltype, levels = avg_scores_by_celltype$celltype)
+    
+    avg_score <- mean(subset_data$Score)
+    
+    
+    s <- ggplot(subset_data, aes(x = celltype, y = Score, fill = celltype)) +
+      geom_violin(alpha = 0.55) +
+      facet_wrap(~Pathway, scales = "free_y") +
+      geom_hline(yintercept = avg_score, linetype = "dashed", color = "red") +
+      geom_crossbar(data = avg_scores_by_celltype, aes(y = Score, ymin = Score, ymax = Score), 
+                    width = 0.5, color = "black", fill = NA) +
+      labs(x = "Cell Type", y = "Cell Score") +
+      scale_fill_manual(values = col) +
+      theme_bw() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+        axis.text.y = element_text(size = 15)
+      )
+    
+    print(s)
+    
+  }
+  ggsave(file="Figure5\\violin_plot.svg",s,width =5,height = 3)
+}
+
+#Figure 6H
+{
+  deg<-read.csv("scvi_celltype-DEG.csv")
+
+  selected_rows <- deg[deg$cluster %in% c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb", "CTHRC1+ Fb",  "PI16+ Fb"), ]
+  desired_order <- c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb", "CTHRC1+ Fb",  "PI16+ Fb")
+  selected_rows$cluster<-factor(selected_rows$cluster, levels = desired_order, ordered = TRUE)
+  
+  gene_df <- selected_rows %>%
+    group_by(gene) %>%
+    slice_max(avg_log2FC, n = 1, with_ties = FALSE) %>% 
+    ungroup() %>%
+    group_by(cluster) %>%
+    arrange(desc(avg_log2FC), .by_group = TRUE) %>%
+    slice_head(n = 10) %>%  
+    ungroup()
+  gene_df<-gene_df$gene
+  
+  scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb", "CTHRC1+ Fb",  "PI16+ Fb")]
+  
+  Idents(scRNA_sub)<-scRNA_sub$celltype
+  Idents(scRNA_sub) <- factor(scRNA_sub@active.ident, levels = desired_order, ordered = TRUE)
+  
+  p <- DotPlot(scRNA_sub, 
+               features = gene_df, 
+               dot.scale = 8) + 
+    RotatedAxis() +
+    
+    geom_point(aes(fill = avg.exp.scaled, size = pct.exp), shape = 21, colour = "black") +
+    scale_fill_gradientn(colours = colorRampPalette(c("#1F78B4","#FFFF99","#C73E3A"))(100)) +
+    labs(title = "cluster markers", y = "", x = "") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 28),
+          axis.text.y = element_text(size = 22),
+          legend.text = element_text(size = 20));p
+  
+  ggsave("Figure6/dotplot.svg",p, width = 7, height =14) 
+  
+}
+
+#Figure 6I
+{
+  pbmc3k <- All_FB[,All_FB@meta.data$celltype %in% c("LRRC15+ Fb","MMP1+ Fb","TNFAIP6+ Fb",
+                                                     "PI16+ Fb","CCL19+ Fb")]
+  celltype=read.csv('celltype_4-WOUND.csv')
+  table(pbmc3k$celltype)
+  pbmc3k@meta.data$celltype2<-pbmc3k@meta.data$celltype
+  pbmc3k@meta.data$celltype = "NA"
+
+  for(i in 1:nrow(celltype)){
+    pbmc3k@meta.data[which(pbmc3k@meta.data$celltype2 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+
+  table(pbmc3k$celltype)
+  group.by <- pbmc3k$celltype
+  group.by <- factor(group.by, levels = c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb","LRRC15+ Fb","PI16+ Fb")) # 按照特定的顺序排序
+
+  pbmc3k$celltype <- group.by
+  geneset<-c("TNFAIP6","TNFAIP3","TNFAIP2","CXCL1","CXCL2","CXCL3","CXCL5","CXCL6","CXCL8","CXCL13","CXCL14",
+             "IL1B", "IL6","IL11","IL24","ICAM1","NFKB1","NFKBIA","CCL3","CCL11","CCL20",
+             "SOD2","SOD3","HSPH1","HSP90AA1","HSP90AB1","HSPD1","HSPA1A","HSPA1B","HSPB1","HSPB3","DNAJA1","DNAJB1",
+             "MMP1","MMP3","MMP9","MMP13","TIMP1","SERPINE1","COL7A1"
+             ,"COL6A3", "COL6A2", "COL6A1", "COL2A1", "COL1A1", "COL1A2", "COL3A1")
+  
+  library(pheatmap)
+  table(All_FB$celltype_scanvi)
+  ave <-  AverageExpression(pbmc3k,assays = "RNA",features=geneset,group.by = "celltype",
+                            verbose = T)$RNA
+  
+    data <- t(scale(t(ave)))
+    font2 <- 8
+    data_transposed <- t(data)
+
+  p <- pheatmap(data_transposed,
+                fontsize = font2,
+                cellwidth = font2 + 2,
+                cellheight = font2 + 2,
+                cluster_cols = F,
+                cluster_rows = F,
+                main = "scale_t")
+  print(p)
+}
+
+#Figure 6I
+{
+  for (sample in samples) {
+
+    sample_num <- gsub("P2_D", "P2D", sample)
+    
+    rctd_name <- paste0("RCTD_", sample)
+    spatial_name <- sample
+    
+    # 获取当前样本的RCTD和空间数据
+    RCTD <- RCTD_list[[rctd_name]]
+    P <- processed_spatial_samples[[spatial_name]]
+    #RCTD<-RCTD_list$RCTD_P2_D0
+    #P<-processed_spatial_samples$P2_D0
+    {
+      #标准化细胞占比权重
+      weights <- RCTD@results$weights
+      norm_weights <- normalize_weights(weights)
+      
+      #使用STdeconvolve绘制细胞占比饼状图
+      library(STdeconvolve)
+      result <- as.matrix(norm_weights)
+      local <- RCTD@spatialRNA@coords
+      
+      library(png)
+      print(dim(result))      # 应该是 [像素数, 细胞类型数]
+      print(dim(local))       # 应该是 [像素数, 2]（x和y列）
+      print(range(local$x))   # 检查x坐标范围
+      print(range(local$y))   # 检查y坐标范围
+      
+      # 计算当前宽高比
+      current_ratio <- (max(local$x) - min(local$x)) / (max(local$y) - min(local$y))
+      print(current_ratio)  # 约为0.54 (62/115)，说明图像会瘦高
+      # 方法2：直接拉伸x坐标，使图像变宽（例如拉伸1.8倍）
+      scaled_pos <- local
+      scaled_pos$x <- scaled_pos$x * (1/current_ratio)
+      #反卷积结果加入到ST对象
+      RCTD_1<- as.data.frame(norm_weights)
+      head(RCTD_1)
+      P<-AddMetaData(P,metadata =RCTD_1)
+      # 从 P 的元数据中提取 LRRC15+ Fb 和 MMP1+ Fb 列
+      selected_data <- P@meta.data[, colnames(RCTD_1)]
+      selected_data[is.na(selected_data)] <- 0
+      
+      # 转换为数据框
+      result_df <- as.data.frame(selected_data)
+      
+      # 查看结果
+      head(result_df)
+      # 将 result_df 中的 NA 替换为 0
+      
+      
+      P<-AddMetaData(P,metadata =selected_data)
+    }
+    #####colocolization
+    {
+
+      library(ggnewscale)
+
+      image_names <- names(P@images)
+      print(paste("Available image names:", paste(image_names, collapse = ", ")))
+      spatial_coords <- GetTissueCoordinates(P, image = image_names[1]) 
+    }
+    feature_data <- FetchData(P, vars = "MMP1+ Fb")
+    {
+      plot_data <- cbind(spatial_coords, feature_data)
+      colnames(plot_data) <- c("x", "y", "Feature1")
+
+    }
+    p <- ggplot(plot_data, aes(x = x, y = y)) +
+      geom_point(aes(color = Feature1), size = 0.01, alpha = 0.6) +
+      scale_color_gradientn(
+        name = "LRRC15+ Fb",
+        colours = colorRampPalette(c("grey90" ,"grey90", "red"))(100),
+        limits = c(0, max(plot_data$Feature1)) 
+      )  +
+
+      theme_classic() +
+      coord_fixed() + 
+      labs(x = "X Coordinate", y = "Y Coordinate") +
+      theme(
+        legend.position = "right",
+        legend.box = "vertical"
+      );p
+
+    plot_name <- paste0("Figure5\\", sample_num, "-LRRC15-.svg")
+    ggsave(plot_name, plot = p, width = 49, height = 49)
+    
+    cat("save", sample, "picture to:", plot_name, "\n")
+  }
+  
+  ggsave("Figure5\\P2D0-LRRC15-.svg", plot = p, width =49, height =49)
+  
+  
+  
+}
+
+#Figure 6J
+{
+  library(Seurat)
+  library(decoupleR)
+  library(dplyr)
+  library(tibble)
+  library(tidyr)
+  library(patchwork)
+  library(ggplot2)
+  library(pheatmap)
+  pbmc3k <- All_FB[,All_FB@meta.data$celltype %in% c("LRRC15+ Fb","MMP1+ Fb","TNFAIP6+ Fb",
+                                                     "PI16+ Fb","CCL19+ Fb")]
+  celltype=read.csv('celltype_4-WOUND.csv')
+
+  table(pbmc3k$celltype)
+  pbmc3k@meta.data$celltype2<-pbmc3k@meta.data$celltype
+  pbmc3k@meta.data$celltype = "NA"
+  for(i in 1:nrow(celltype)){
+    pbmc3k@meta.data[which(pbmc3k@meta.data$celltype2 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+
+  table(pbmc3k$celltype)
+  
+  pbmc3k@assays$RNA@counts[1:2,]
+
+  pbmc3k <- FindVariableFeatures(pbmc3k, selection.method = "vst", nfeatures = 10000)
+
+  hvgs <- VariableFeatures(pbmc3k)
+  
+
+  mat <- GetAssayData(pbmc3k, slot = "data")[hvgs, ]
+  mat <- as.matrix(mat)
+  
+  
+  net <- get_collectri(organism='human', split_complexes=FALSE)
+  # Extract the normalized log-transformed counts
+  
+  # Run ulm
+  acts2 <- run_ulm(mat=mat, net=net, .source='source', .target='target',
+                   .mor='mor', minsize = 5)
+  act<-acts2
+  Idents(pbmc3k)<-pbmc3k$celltype
+  
+  pbmc3k[['tfsulm']] <- acts2 %>%
+    pivot_wider(id_cols = 'source', 
+                names_from = 'condition',
+                values_from = 'score') %>%
+    column_to_rownames('source') %>%
+    Seurat::CreateAssayObject(.)
+  DefaultAssay(object = pbmc3k) <- "tfsulm"
+  pbmc3k <- ScaleData(pbmc3k)
+  pbmc3k@assays$tfsulm@data <- pbmc3k@assays$tfsulm@scale.data
+  
+  n_tfs <- 200
+
+  df <- t(as.matrix(pbmc3k@assays$tfsulm@data)) %>%
+    as.data.frame() %>%
+    mutate(cluster = Idents(pbmc3k)) %>%
+    pivot_longer(cols = -cluster, 
+                 names_to = "source", 
+                 values_to = "score") %>% 
+    group_by(cluster, source) %>% 
+    summarise(mean = mean(score))
+  
+  tfs <- df %>%
+    group_by(source) %>%
+    summarise(std = sd(mean)) %>%
+    arrange(-abs(std)) %>%
+    head(n_tfs) %>%
+    pull(source)
+  
+  top_acts_mat <- df %>%
+    filter(source %in% tfs) %>%
+    pivot_wider(id_cols = 'cluster', 
+                names_from = 'source',
+                values_from = 'mean') %>%
+    column_to_rownames('cluster') %>%
+    as.matrix()
+  write.csv(top_acts_mat, "TF-3 celltype.csv", row.names = TRUE)
+  
+  palette_length = 500
+  my_color = colorRampPalette(c("#1F78B4", "white","#C73E3A"))(palette_length)
+  
+  my_breaks <- c(seq(-3, 0, length.out=ceiling(palette_length/2) + 1),
+                 seq(0.05, 3, length.out=floor(palette_length/2)))
+  
+  table(All_FB$celltype)
+  
+  colnames_order <- c("CCL19+ Fb","TNFAIP6+ Fb","MMP1+ Fb","LRRC15+ Fb", "PI16+ Fb")
+  top_acts_mat_ordered <- top_acts_mat[colnames_order, , drop = FALSE]
+  a <- pheatmap(
+    mat = t(top_acts_mat_ordered),  
+    border_color = NA,              
+    color = my_color,              
+    breaks = my_breaks,            
+    cluster_rows = TRUE,           
+    cluster_cols = FALSE,           
+    labels_col = colnames_order,   
+    fontsize_row = 10,              
+    fontsize_col = 10,             
+    show_colnames = TRUE,          
+    show_rownames = TRUE           
+  );a
+  ggsave("Figure5\\TF-top200.svg", plot = a, width = 3.5, height =7)
+}
+
+#Figure S6A
+{
+  top_hvg <- c("GEM", "TNFAIP6") 
+  a <- 0.5
+  {
+    cell_types <- c("S")  
+    output_dir <- "Figure6" 
+    
+    if (!require("MASS", character.only = TRUE)) {
+      install.packages("MASS", dependencies = TRUE)
+      library(MASS, character.only = TRUE)
+    }
+    if (!require("ggplot2", character.only = TRUE)) {
+      install.packages("ggplot2", dependencies = TRUE)
+      library(ggplot2, character.only = TRUE)
+    }
+    if (!require("ggExtra", character.only = TRUE)) {
+      install.packages("ggExtra", dependencies = TRUE)
+      library(ggExtra, character.only = TRUE)
+    }
+    
+    {
+      if (!exists("All_FB")) {
+        stop("Error: The Seurat object 'All_FB' does not exist; please verify the object name.")
+      }
+      
+      missing_genes <- setdiff(top_hvg, rownames(All_FB))
+      if (length(missing_genes) > 0) {
+        stop("Error: The following genes are not present in the Seurat object:", paste(missing_genes, collapse=", "))
+      }
+      
+      dat_use <- t(GetAssayData(All_FB, slot = "data")[top_hvg, , drop = FALSE])  
+      dat_use <- as.data.frame(dat_use)
+      
+      if (ncol(dat_use) != length(top_hvg)) {
+        stop("Error: The number of columns in the extracted data does not match the number of genes, which may be due to incorrect gene names.")
+      }
+      
+      celltype <- All_FB@meta.data$sample_group  
+      df <- data.frame(celltype = celltype, dat_use) 
+      
+      if (nrow(df) == 0 || ncol(df) < 3) {
+        stop("Error: The data frame df is empty or has fewer than 3 columns; please verify the single-cell object and gene names.")
+      }
+      
+      expr_cols <- df[, 2:(1+length(top_hvg)), drop = FALSE] 
+      if (nrow(expr_cols) == 0 || ncol(expr_cols) != length(top_hvg)) {
+        stop("Error: The extracted expression data is empty or exhibits a column number mismatch; please verify the accuracy of gene names.")
+      }
+      if (!is.data.frame(expr_cols)) {
+        expr_cols <- as.data.frame(expr_cols)
+      }
+      
+      calculate_percentile <- function(column) {
+        non_zero_values <- column[column != 0]
+        if (length(non_zero_values) == 0) {
+          warning("Warning: All values of a specific gene are zero; quantile calculation may be inaccurate.")
+          return(0)
+        }
+        return(quantile(non_zero_values, probs = a, na.rm = TRUE))
+      }
+      quantile_values <- apply(expr_cols, 2, calculate_percentile)
+      
+      conditions <- lapply(1:length(top_hvg), function(i) {
+        df[, top_hvg[i]] > quantile_values[i]
+      })
+      df$Group <- ifelse(Reduce("&", conditions), "positive", "negative")
+
+      if (!dir.exists(output_dir)) {
+        dir.create(output_dir, recursive = TRUE)
+        cat("Output directory has been created:", output_dir, "\n")
+      }
+      
+      for (cell_type in cell_types) {
+        cat("\nProcessing cell types:", cell_type, "\n")
+        
+        df1 <- subset(df, celltype == cell_type)
+        if (nrow(df1) == 0) {
+          warning("Warning: Cell types", cell_type, "No data available; the analysis was skipped.")
+          next
+        }
+        cat("Sample size:", nrow(df1), "\n")
+
+        density_conditions <- lapply(top_hvg, function(gene) {
+          df1[[gene]] > 0
+        })
+        density_data <- subset(df1, Reduce("&", density_conditions))
+        cat("Valid density data (excluding zero expression):", nrow(density_data), "\n")
+        
+        has_density <- FALSE
+        if (nrow(density_data) >= 5) {
+          var_check <- all(sapply(top_hvg, function(gene) {
+            sd(density_data[[gene]], na.rm = TRUE) > 1e-6
+          }))
+          
+          if (var_check) {
+            bandwidths <- sapply(top_hvg, function(gene) {
+              bw <- bandwidth.nrd(density_data[[gene]]) * 1.2
+              max(bw, 0.1) 
+            })
+            
+            if (length(top_hvg) == 2) {
+              dens <- MASS::kde2d(
+                x = density_data[[top_hvg[1]]],
+                y = density_data[[top_hvg[2]]],
+                h = bandwidths,
+                n = 200 
+              )
+              dens_df <- expand.grid(x = dens$x, y = dens$y)
+              dens_df$z <- as.vector(dens$z)
+              has_density <- TRUE
+            } else {
+              warning("Warning: Currently, only density plot plotting for two genes is supported.")
+            }
+          } else {
+            warning("Warning: The filtered data exhibit excessively small variance, such that density plots and contour lines cannot be generated.")
+          }
+        } else {
+          warning("Warning: Fewer than five valid samples are available; consequently, density plots and contour lines cannot be generated.")
+        }
+        
+        x_max <- max(df1[[top_hvg[1]]], na.rm = TRUE) + 1
+        y_max <- if (length(top_hvg) >= 2) max(df1[[top_hvg[2]]], na.rm = TRUE) + 1 else 0
+        gene_x <- top_hvg[1]
+        gene_y <- if (length(top_hvg) >= 2) top_hvg[2] else ""
+        
+        uniform_gradient <- colorRampPalette(c("white","#FFE4B5","#F0E68C","#FFA07A","#FF4500","red"))
+        colors <- uniform_gradient(20)
+        
+        p <- ggplot(df1, aes_string(x = gene_x, y = gene_y))
+        
+        if (has_density && length(top_hvg) == 2) {
+          p <- p + 
+            geom_raster(
+              data = dens_df, 
+              aes(x = x, y = y, fill = z),
+              alpha = 0.8  
+            ) +
+            scale_fill_gradientn(
+              colours = colors,
+              name = "Density"
+            )
+          
+          p <- p +
+            geom_contour(
+              data = dens_df, 
+              aes(x = x, y = y, z = z),
+              bins = 8,         
+              color = "black",  
+              size = 0.6,       
+              alpha = 0.8       
+            )
+        }
+        
+        p <- p +
+          geom_point(
+            aes(color = Group),
+            size = 1.2,    
+            alpha = 0.6   
+          ) +
+          scale_color_manual(
+            values = c("grey50", "blue") 
+          ) +
+          scale_x_continuous(limits = c(0, x_max)) +
+          scale_y_continuous(limits = c(0, y_max)) +
+          guides(fill = "none", color = "none") 
+        
+        p2 <- p +
+          theme(
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+            axis.title = element_text(size = 35),
+            axis.text = element_text(size = 25, colour = "black", angle = 270, vjust = 0.5),
+            axis.ticks = element_blank(),
+            panel.background = element_rect(fill = "white"),
+            plot.background = element_rect(fill = "white")
+          ) +
+          geom_vline(xintercept = quantile_values[1], linetype = "dashed", color = "black") +
+          geom_hline(yintercept = if (length(top_hvg) >= 2) quantile_values[2] else 0, 
+                     linetype = "dashed", color = "black")
+        
+        if (length(top_hvg) == 2) {
+          total_cells <- nrow(df1)
+          q1 <- sum(df1[[gene_x]] > quantile_values[1] & df1[[gene_y]] > quantile_values[2]) / total_cells
+          q2 <- sum(df1[[gene_x]] < quantile_values[1] & df1[[gene_y]] > quantile_values[2]) / total_cells
+          q3 <- sum(df1[[gene_x]] < quantile_values[1] & df1[[gene_y]] < quantile_values[2]) / total_cells
+          q4 <- sum(df1[[gene_x]] > quantile_values[1] & df1[[gene_y]] < quantile_values[2]) / total_cells
+          
+          label_pos <- 1.2
+          p2 <- p2 +
+            annotate("text", x = label_pos, y = y_max - label_pos/5,
+                     label = paste0(round(q2 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = x_max - label_pos, y = y_max - label_pos/5,
+                     label = paste0(round(q1 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = x_max - label_pos, y = 0 + label_pos/5,
+                     label = paste0(round(q4 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = label_pos, y = 0 + label_pos/5,
+                     label = paste0(round(q3 * 100, 2), "%"), size = 12, color = "black")
+        }
+        
+        a2 <- ggExtra::ggMarginal(
+          p2,
+          type = "density",
+          groupFill = TRUE,
+          fill = c("grey", "#EE5858"),
+          alpha = 0.5,
+          colour = NA 
+        )
+        
+        file_prefix <- paste0(output_dir, "/", cell_type, "-", paste(top_hvg, collapse = "-"))
+        ggsave(
+          filename = paste0(file_prefix, ".pdf"),
+          plot = a2,
+          width = 7,
+          height = 7,
+          device = "pdf"
+        )
+        ggsave(
+          filename = paste0(file_prefix, ".svg"),
+          plot = a2,
+          width = 7,
+          height = 7,
+          device = "svg"
+        )
+        cat("Figures have been saved to:", file_prefix, "\n")
+      }
+      cat("\nAnalysis of all cell types has been successfully completed!\n")
+    }
+  }
+}
