@@ -1,0 +1,796 @@
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer)
+library(ggplot2)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(STdeconvolve)
+library(png)
+library(ComplexHeatmap)
+library(circlize)
+library(scater)
+library(ggforce)
+library(ggpubr)
+library(reshape2)
+library(spacexr)
+library(msigdbr)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(wesanderson)
+library(grid)
+library(tidyr)
+library(rstatix)
+library(decoupleR)
+library(tibble)
+library(plotly)
+library(htmlwidgets)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(patchwork)
+library(ggplot2)
+library(pheatmap)
+library(Seurat)
+library(progeny)
+library(Seurat)
+library(decoupleR)
+library(viridis)
+library(SeuratData) 
+library(Seurat)
+library(cowplot)
+library(slingshot)
+library(tradeSeq)
+library(BiocParallel)
+library(SingleCellExperiment)
+library(qs)
+
+
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B","#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+load("py_all_fb2.Rdata")
+
+
+#Figure 3B
+{
+  markers=read.csv('Figure3/markers_scarvsskin-DEG.csv')
+  markers <- markers %>%
+    mutate(Difference = pct.1 - pct.2) %>% 
+    rownames_to_column("gene")
+  
+  markers <- markers %>%
+    mutate(change = case_when(
+      Difference > 0 & avg_log2FC > 0.5 ~ "up",
+      Difference < 0 & avg_log2FC < -0.5 ~ "down",
+      TRUE ~ "ns"  
+    ))
+  
+  markers$genes<-markers$X
+
+  ggplot(markers, aes(x=Difference, y=avg_log2FC, color = change)) + 
+    geom_point(size=1.2) + 
+    scale_color_manual('change',labels=c(paste0("down(",table(markers$change)[[1]],')'),
+                                         'ns',
+                                         paste0("up(",table(markers$change)[[3]],')' )),
+                       values=c("#0d1b46", "grey","tomato" ))+
+    geom_label_repel(data=subset(markers, 
+                                 avg_log2FC >= 1 & Difference >= 0.2 & p_val_adj <= 0.05), 
+                     aes(label=genes), 
+                     color="tomato", 
+                     segment.colour = "tomato",
+                     label.padding = 0.2, 
+                     segment.size = 0.3, 
+                     size=4,
+                     max.overlaps = 30,
+                     force = 100, 
+                     direction = "both") + 
+    geom_label_repel(data=subset(markers, 
+                                 avg_log2FC <= -1 & Difference <= -0.1 & p_val_adj <= 0.05), 
+                     aes(label=genes), 
+                     label.padding = 0.2, 
+                     color="#0d1b46",
+                     segment.colour = "#0d1b46",
+                     segment.size = 0.3, size=4,
+                     max.overlaps = 20,
+                     force = 100, 
+                     direction = "both") + 
+    geom_vline(xintercept = 0,linetype = 2) +
+    geom_hline(yintercept = 0,linetype = 2) +
+    labs(x="△ Percentage difference",y="Log-Fold change") + 
+    theme_bw()
+  ggsave("Figure3/markers.svg",width = 6.5,height = 3)  
+  
+  ###GSEA
+  cluster_markers_samplegroup<-read.csv("Figure3/markers_scarvsskin-DEG.csv",row.names = 1)
+  
+  degs_data <- cluster_markers_samplegroup %>% 
+    top_n(n = 1000, wt = avg_log2FC) %>%  
+    arrange(desc(avg_log2FC))  
+  
+  gene_list <- degs_data$avg_log2FC
+  names(gene_list) <- rownames(degs_data)
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  msig_h <- msigdbr(species = "Homo sapiens", category = "H") 
+  
+  gsea_res <- GSEA(gene_list,
+                   TERM2GENE = msig_h[, c("gs_name", "gene_symbol")],
+                   pvalueCutoff = 1)  
+  a<-gseaplot2(gsea_res, 
+               geneSetID = 1:8,  
+               pvalue_table = T,
+               base_size = 20,
+               color =col);a
+
+  pathway<-gsea_res@result
+  write.csv(pathway, "Figure3/GSEA.csv", row.names = TRUE)
+  ggsave("Figure3/basic_plot_GSEA.svg",a, height = 8, width = 6)
+  
+}
+
+#Figure 3D
+{
+  deg<-read.csv("celltype-DEG.csv")
+  selected_rows <- deg[deg$cluster %in% c("LRRC15+ Fb", "LAMP5+ Fb", "CTHRC1+ Fb", "CCL19+ Fb", "PI16+ Fb"), ]
+  desired_order <- c("CCL19+ Fb", "PI16+ Fb", "CTHRC1+ Fb", "LAMP5+ Fb", "LRRC15+ Fb")
+  selected_rows$cluster<-factor(selected_rows$cluster, levels = desired_order, ordered = TRUE)
+
+  gene_df <- selected_rows %>%
+    group_by(gene) %>%
+    slice_max(avg_log2FC, n = 1, with_ties = FALSE) %>% 
+    ungroup() %>%
+    group_by(cluster) %>%
+    arrange(desc(avg_log2FC), .by_group = TRUE) %>%
+    slice_head(n = 10) %>%  
+    ungroup()
+  gene_df<-gene_df$gene
+
+  scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("CTHRC1+ Fb","LAMP5+ Fb",
+                                                      "LRRC15+ Fb","CCL19+ Fb","PI16+ Fb")]
+
+  Idents(scRNA_sub)<-scRNA_sub$celltype
+  Idents(scRNA_sub) <- factor(scRNA_sub@active.ident, levels = desired_order, ordered = TRUE)
+  
+  p <- DotPlot(scRNA_sub, 
+               features = gene_df, 
+               dot.scale = 8) + 
+    RotatedAxis() +
+
+    geom_point(aes(fill = avg.exp.scaled, size = pct.exp), shape = 21, colour = "black") +
+    scale_fill_gradientn(colours = colorRampPalette(c("#1F78B4","#FFFF99","#C73E3A"))(100)) +
+    labs(title = "cluster markers", y = "", x = "") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 28),
+          axis.text.y = element_text(size = 22),
+          legend.text = element_text(size = 20));p
+
+  ggsave("Figure3/dotplot.svg",p, width = 7, height =14)
+}
+
+#Figure 3E
+{
+  #load("SDS.Rdata")
+    sds <- SlingshotDataSet(sim)
+    lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
+      curve_data <- slingCurves(sds)[[i]]
+      as.data.frame(curve_data$s) %>% 
+        setNames(c("UMAP1", "UMAP2")) %>%
+        mutate(lineage = i)
+    }) %>% bind_rows()
+    
+    p <- ggplot(umap_data, aes(x = UMAP1, y = UMAP2)) +
+      geom_point(aes(color = I(color)), size = 1.5, alpha = 0.8)  +
+      geom_path(data = lineage_data, aes(x = UMAP1, y = UMAP2, group = lineage, 
+                                           color = factor(lineage)), size = 1.5) +
+      scale_color_manual(name = "Lineages", 
+                          values = c(brewer.pal(8, "Set1"), "#999999"),
+                          labels = paste0("Lineage ", 1:8)) +
+    theme_minimal() +
+    theme(
+        panel.grid = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 12, face = "bold"),
+        legend.position = "right",
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +
+    labs(title = "Slingshot Trajectory Visualization",
+            x = "UMAP 1",
+            y = "UMAP 2") +
+    coord_fixed()
+    
+    print(p)
+    
+    ggsave(filename='figure3/slingPseudotime_6.SVG',p,width=9,height=5)
+    
+  ###########################################
+    sce<-sce_tnfaip6
+    p <- ggscatter(data = plt_data,
+                      x = 'Pseudotime',
+                      y = "COL3A1",
+                      color = 'col',
+                      size = 2,
+                      alpha=1) +
+        geom_smooth(se = FALSE, color = 'orange') +
+        theme_bw() +
+        scale_color_manual(values = mycolors) +
+        theme(
+          legend.position = 'none',
+          axis.text = element_text(size = 25), 
+          axis.title = element_text(size = 25));p
+      
+    ggsave(filename='figure3/COL3A1-.svg',p,width=5.5,height=2.5)
+
+}
+
+
+#Figure 3H
+{
+  #(i)
+  genes <- c( 'COL1A1', 'COL1A2', 'COL3A1','COL5A1', 'COL5A2', 'COL6A2', 'COL6A1','COL6A3',  'COL12A1',
+              'CSRP2', 'SPARC','POSTN', 'CTHRC1', 'DPT', 'BGN', 'MDK', 'ASPN', 'HTRA1', "LGALS1")
+  ave <-  AverageExpression(All_FB,assays = "RNA",features=genes,
+                            group.by = "celltype",verbose = T)$RNA
+  {
+    data <- scale(ave)
+    font2 <- 8
+    p <- pheatmap(data,fontsize=font2,cellwidth = font2+2, cellheight = font2+2,cluster_cols=FALSE,cluster_rows=FALSE,main="scale")
+    print(p)
+    data <- t(scale(t(ave)))
+    font2 <- 8
+    data_transposed <- t(data)
+    
+    p <- pheatmap(data_transposed,
+                  fontsize = font2,
+                  cellwidth = font2 + 2,
+                  cellheight = font2 + 2,
+                  cluster_cols = F,
+                  cluster_rows = T,
+                  main = "scale_t");p  
+  }
+  ggsave("Figure3\\heatmap.svg",p,width=6.5,height=5)  
+  
+  #(ii)
+  cells_subset <- subset(All_FB, subset = celltype %in% c("LRRC15+ Fb", "CTHRC1+ Fb", "LAMP5+ Fb"))
+  genes_of_interest <- c('COL1A1', 'COL1A2', 'COL3A1','COL5A1', 'COL5A2', 'COL6A2', 'COL6A1','COL6A3',  'COL12A1')
+  #genes_of_interest <- c('CSRP2', 'SPARC','POSTN', 'CTHRC1', 'DPT', 'BGN', 'MDK', 'ASPN', 'HTRA1', "LGALS1")
+  
+  expr_matrix <- FetchData(cells_subset, vars = genes_of_interest, slot = "data")
+  metadata <- cells_subset@meta.data
+  plot_data <- cbind(expr_matrix, celltype = metadata$celltype)
+  plot_data_long <- plot_data %>%
+    pivot_longer(cols = -celltype, names_to = "gene", values_to = "expression")
+
+  plot_data_long$gene <- factor(plot_data_long$gene, levels = genes_of_interest)
+  plot_data_long$celltype <- factor(plot_data_long$celltype, 
+                                    levels = c("CTHRC1+ Fb", "LRRC15+ Fb", "LAMP5+ Fb"))
+
+  stat_test <- plot_data_long %>%
+    group_by(gene) %>%
+    t_test(expression ~ celltype, ref.group = "CTHRC1+ Fb") %>%
+    adjust_pvalue(method = "fdr") %>%  
+    mutate(
+      p.adj.signif = case_when(
+        p.adj < 0.001 ~ "***",
+        p.adj < 0.01 ~ "**",
+        p.adj < 0.05 ~ "*",
+        TRUE ~ "ns"
+      ),
+      group1 = "CTHRC1+ Fb",
+      group2 = str_remove(group2, "celltype"),
+      comparison = paste(group1, "vs", group2)
+    )
+  
+  max_expression <- plot_data_long %>%
+    group_by(gene) %>%
+    summarize(max_exp = max(expression, na.rm = TRUE) * 1.2)  
+  
+  stat_test <- stat_test %>%
+    left_join(max_expression, by = "gene") %>%
+    mutate(
+      y.position = max_exp + 0.1 * row_number()  
+    )
+  
+  col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","black","#1F78B4","#B3D88B",  "#FF7F00","#64B482",
+                  "#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB", "#800080",
+                  "#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+                  
+  p <- ggplot(plot_data_long, aes(x = gene, y = expression, fill = celltype)) +
+    geom_bar(stat = "summary", fun = "mean", position = position_dodge(0.8), width = 0.7) +
+    stat_summary(geom = "errorbar", fun.data = mean_se, 
+                 position = position_dodge(0.8), width = 0.2, size = 0.2) +
+    scale_fill_manual(values = c("#FF7F00","#1F78B4","#FB9A99")) +  
+    labs(
+      x = "Gene", 
+      y = "Mean Expression Level (Log Normalized)", 
+      fill = "Cell Type"
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+      axis.text.y = element_text(size = 20),
+      legend.position = "top", 
+      plot.margin = margin(10, 10, 50, 10)  
+    )
+  
+  p <- p + stat_pvalue_manual(
+    stat_test,
+    x = "gene",
+    label = "p.adj.signif",  
+    y.position = "y.position",  
+    bracket.size = 0.6, 
+    bracket.nudge.y = 0.1,  
+    step.increase = 0.1,  
+    position = position_dodge(0.8), 
+    inherit.aes = FALSE
+  )
+  
+  print(p)
+  
+  ggsave("Figure3//collagen_expression_barchart.svg", p, width = 12, height = 9)
+  
+}
+
+#Figure 3I
+{
+  All_FB@assays$RNA@counts[1:2,]
+  All_FB <- FindVariableFeatures(All_FB, selection.method = "vst", nfeatures = 10000)
+  hvgs <- VariableFeatures(All_FB)
+
+  mat <- GetAssayData(All_FB, slot = "data")[hvgs, ]
+  mat <- as.matrix(mat)
+  net <- get_collectri(organism='human', split_complexes=FALSE)
+
+  acts2 <- run_ulm(mat=mat, net=net, .source='source', .target='target',
+                   .mor='mor', minsize = 5)
+  Idents(All_FB)<-All_FB$celltype
+  
+  All_FB[['tfsulm']] <- acts2 %>%
+    pivot_wider(id_cols = 'source', 
+                names_from = 'condition',
+                values_from = 'score') %>%
+    column_to_rownames('source') %>%
+    Seurat::CreateAssayObject(.)
+
+  DefaultAssay(object = All_FB) <- "tfsulm"
+
+  All_FB <- ScaleData(All_FB)
+  All_FB@assays$tfsulm@data <- All_FB@assays$tfsulm@scale.data
+  
+  n_tfs <- 50
+
+  df <- t(as.matrix(All_FB@assays$tfsulm@data)) %>%
+    as.data.frame() %>%
+    mutate(cluster = Idents(All_FB)) %>%
+    pivot_longer(cols = -cluster, 
+                 names_to = "source", 
+                 values_to = "score") %>% 
+    group_by(cluster, source) %>% 
+    summarise(mean = mean(score))
+  
+  tfs <- df %>%
+    group_by(source) %>%
+    summarise(std = sd(mean)) %>%
+    arrange(-abs(std)) %>%
+    head(n_tfs) %>%
+    pull(source)
+
+  top_acts_mat <- df %>%
+    filter(source %in% tfs) %>%
+    pivot_wider(id_cols = 'cluster', 
+                names_from = 'source',
+                values_from = 'mean') %>%
+    column_to_rownames('cluster') %>%
+    as.matrix()
+
+  palette_length = 500
+  my_color = colorRampPalette(c("#1F78B4", "white","#C73E3A"))(palette_length)
+  my_breaks <- c(seq(-3, 0, length.out=ceiling(palette_length/2) + 1),
+                 seq(0.05, 3, length.out=floor(palette_length/2)))
+ 
+  table(All_FB$celltype)
+  colnames_order <- c('CTHRC1+ Fb','LAMP5+ Fb',"LRRC15+ Fb", 'COL4A1+ Fb','MMP1+ Fb',  'CCL19+ Fb', 
+                      'TNFAIP6+ Fb', 'PI16+ Fb','AQP1+ Fb','IGKC+ Fb',  'APCDD1+ Fb',
+                      'COCH+ Fb','KRT+ Fb',  'IGFBP2+ Fb',  'ANGPTL7+ Fb', 'S100B+ Fb')
+
+  top_acts_mat_ordered <- top_acts_mat[colnames_order, , drop = FALSE]
+  a <- pheatmap(t(top_acts_mat_ordered), 
+                border_color = NA,
+                color = my_color, 
+                breaks = my_breaks,
+                cluster_rows = T,
+                cluster_cols = F,  
+                labels_col  = colnames_order,
+                fontsize_row = 10, 
+                fontsize_col = 10  
+  );a
+  ggsave("Figure3\\TF.svg", plot = a, width = 4, height =5.5)
+}
+
+#Figure 3J
+{
+  scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("CTHRC1+ Fb","LAMP5+ Fb","LRRC15+ Fb")]
+  celltype=read.csv('celltype_4-fibrosis.csv')
+  table(scRNA_sub$celltype)
+  scRNA_sub@meta.data$celltype2<-scRNA_sub@meta.data$celltype
+  scRNA_sub@meta.data$celltype = "NA"
+
+  for(i in 1:nrow(celltype)){
+    scRNA_sub@meta.data[which(scRNA_sub@meta.data$celltype2 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+
+  table(scRNA_sub$celltype)
+  scRNA_subh = scRNA_sub[,scRNA_sub@meta.data$sample_group  %in% "NS"]
+  Idents(scRNA_subh)<-scRNA_subh$celltype
+  count_table<-table(scRNA_subh@meta.data[,"celltype"],scRNA_subh@meta.data[,"sample_group"])
+
+  count_mtx<-as.data.frame.matrix(count_table)
+  count_mtx$cluster<-rownames(count_mtx)
+  melt_mtx<-melt(count_mtx)
+  melt_mtx$cluster<-as.factor(melt_mtx$cluster)
+  cluster_size<-aggregate(value~cluster,data=melt_mtx,FUN=sum)
+  colnames(melt_mtx)[2]<-"dataset"
+
+  total_cells<-sum(cluster_size$value)
+  cluster_size$percent<-round(cluster_size$value/total_cells*100,1)
+  cluster_size<-cluster_size[order(-cluster_size$value),]
+
+  cluster_size$cluster<-factor(cluster_size$cluster,levels=rev(cluster_size$cluster))
+
+  col2<-c("#FFC0CB", "#800080","#9370DB")
+  p1 <- ggplot(cluster_size, aes(y = cluster, x = value, fill = cluster)) +
+    geom_bar(position = "dodge", stat = "identity") +
+    theme_bw() +
+    theme(
+      axis.title.x = element_text(size = 10, face = "bold", angle = 0, hjust = 0.5),
+      axis.title.y = element_text(size = 12, face = "bold"),
+      axis.text.x = element_text(size = 16, face = "bold", angle = 270, hjust = 0.5),
+      axis.text.y = element_text(size = 10, face = "bold"),legend.position = "none"
+    ) +
+    xlab("Cells per cluster") +
+    ylab("") +
+    geom_text(aes(label = paste0(value, " (", round(percent, 1), "%)")),
+              position = position_stack(vjust = 0.9),
+              hjust = -0.2,
+              fontface = "bold",size = 5) + 
+    scale_x_continuous(
+      limits = c(0, 450),
+      breaks = seq(0, 450, by = 100),
+      expand = expansion(mult = c(0, 0.1))
+    ) +
+    scale_fill_manual(values = col2) 
+  print(p1)
+  ggsave("Figure3/cell-ratio-barplot—NS.svg", p1, width=6 ,height=3)
+
+  cluster_size <- cluster_size %>%
+    mutate(percent = value / sum(value) * 100)
+  
+  p2 <- ggplot(cluster_size, aes(x = "", y = value, fill = cluster)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar("y", start = 0) +
+    scale_fill_manual(values = col2) +
+    geom_text(aes(label = paste0(round(percent, 2), "%")), 
+              position = position_stack(vjust = 0.5),
+              color = "white", size = 25 / .pt) +
+    labs(title = "NS") +
+    theme_void() +
+    theme(legend.position = "none")
+  print(p2)
+  
+  ggsave("Figure3/pie chart.svg", p2, width=3 ,height=3) 
+  
+}
+
+
+#Figure 3L
+{
+  # Only needed for data handling and plotting
+  Idents(All_FB)<-All_FB$celltype
+  CellsClusters <- data.frame(Cell = names(Idents(All_FB)), 
+                              CellType = as.character(Idents(All_FB)),
+                              stringsAsFactors = FALSE)
+  head(CellsClusters)
+  
+  All_FB <- progeny(All_FB, scale=FALSE, organism="Human",
+                    top=500, perm=1, return_assay = TRUE) #"Human" Mouse
+  All_FB@assays$progeny 
+  All_FB@assays$progeny %>%dim()
+  All_FB@assays$progeny@data[,1:3]
+  assays <- Seurat::ScaleData(All_FB, assay = "progeny")
+  
+  progeny_scores_df <- 
+    as.data.frame(t(GetAssayData(assays, slot = "scale.data", 
+                                 assay = "progeny"))) %>%
+    rownames_to_column("Cell") %>%
+    gather(Pathway, Activity, -Cell) 
+  dim(progeny_scores_df)
+  
+  progeny_scores_df <- inner_join(progeny_scores_df, CellsClusters)
+  
+  summarized_progeny_scores <- progeny_scores_df %>% 
+    group_by(Pathway, CellType) %>%
+    summarise(avg = mean(Activity), std = sd(Activity))
+  dim(summarized_progeny_scores)
+
+  summarized_progeny_scores_df <- summarized_progeny_scores %>%
+    dplyr::select(-std) %>%   
+    spread(Pathway, avg) %>%
+    data.frame(row.names = 1, check.names = FALSE, stringsAsFactors = FALSE) 
+  
+  paletteLength = 100
+  myColor = colorRampPalette(c("Darkblue", "white","red"))(paletteLength)
+  progenyBreaks = c(seq(min(summarized_progeny_scores_df), 0, 
+                        length.out=ceiling(paletteLength/2) + 1),
+                    seq(max(summarized_progeny_scores_df)/paletteLength, 
+                        max(summarized_progeny_scores_df), 
+                        length.out=floor(paletteLength/2)))
+  row_order <- rownames(summarized_progeny_scores_df)
+
+  summarized_progeny_scores_df_ordered <- summarized_progeny_scores_df[row_order, , drop = FALSE]
+  
+  bangbangtang<-summarized_progeny_scores_df_ordered[,c("TGFb", "PI3K", "WNT", "EGFR", "Hypoxia", "MAPK",
+                                                        "NFkB","TNFa","VEGF", "JAK-STAT", "p53")]
+  num_rows <- nrow(bangbangtang)
+  
+  selected_col <- col[1:num_rows]
+  bangbangtang$col <- selected_col
+  cell_order <- rownames(bangbangtang)
+
+  gene_order <- c("TGFb", "PI3K", "WNT", "EGFR", "Hypoxia", "MAPK", "NFkB", "TNFa",
+                  "VEGF", "JAK-STAT", "p53")
+
+  data_long <- bangbangtang %>%
+    tibble::rownames_to_column("Cell") %>%
+    pivot_longer(cols = -c(Cell, col),  
+                 names_to = "Gene", 
+                 values_to = "Score")%>%
+    mutate(Cell = factor(Cell, levels = rev(cell_order)),
+           Gene = factor(Gene, levels = gene_order))
+
+  a<-ggplot(data_long, aes(x = Score, y = reorder(Cell, Score))) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.5)+
+    geom_segment(aes(x = 0, xend = Score, y = Cell, yend = Cell, color = col), 
+                 linewidth = 1) +  
+    geom_point(aes(color = col), size = 3) +
+    facet_wrap(~ Gene, scales = "free_x", nrow = 1) +
+    labs(x = "Gene Score", y = "Cell", 
+         title = "Gene Scores Across Cells",
+         color = "Group") + 
+    theme_minimal() +
+    theme(
+      axis.title.x = element_text(size = 15),
+      axis.title.y = element_text(size = 15),
+      axis.text.x = element_text(size = 10),
+      axis.text.y = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 15, face = "bold"),
+
+      legend.position = "right",  
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 14),
+
+      panel.spacing = unit(1, "lines"),
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 1),
+      strip.background = element_rect(colour = "black", fill = "gray90", linewidth = 1)
+    );a 
+  }
+
+#Figuer S3A
+{
+  library(ggrepel)
+  cluster_markers_samplegroup2<-read.csv("scvi_celltype-DEG.csv",row.names = 1)
+  markers <- cluster_markers_samplegroup2 %>% filter(cluster=="PI16+ Fb") %>% arrange(desc(avg_log2FC))
+  {
+    markers <- markers %>%
+      mutate(Difference = pct.1 - pct.2) %>%
+      filter(!grepl("^MT-", gene))
+
+    markers <- markers %>%
+      mutate(change = case_when(
+        Difference > 0 & avg_log2FC > 0.5 ~ "sig",
+        TRUE ~ "ns" 
+      ))
+    
+    top_genes <- subset(markers, avg_log2FC >= 0.5 & Difference >= 0 & p_val_adj <= 0.05)
+    top_genes <- top_genes[order(-top_genes$avg_log2FC), ]  
+    top_genes <- top_genes[1:min(20, nrow(top_genes)), ]   
+    
+    a <- ggplot(markers, aes(x=Difference, y=avg_log2FC, color = change)) + 
+      geom_point(size=1.2) + 
+      scale_color_manual('change', 
+                         labels=c(paste0("sig(",table(markers$change)[[2]],')'), 'ns'),
+                         values=c("grey", "tomato")) +
+      
+      geom_label_repel(data=top_genes, 
+                       aes(label=gene),
+                       color="tomato",
+                       segment.colour = "tomato",
+                       label.padding = 0.2, 
+                       segment.size = 0.3,
+                       size=4,
+                       max.overlaps = 20,
+                       force = 20,
+                       direction = "both") +
+      
+      geom_vline(xintercept = 0, linetype = 2) +
+      geom_hline(yintercept = 0, linetype = 2) +
+      labs(x="△ Percentage difference", y="Log-Fold change") + 
+      theme_bw() +
+      theme(
+        axis.text = element_text(size = 15),  
+        axis.title = element_text(size = 15, face="bold") 
+      )
+    print(a)
+  }
+}
+
+#Figure S3F-K
+{
+  scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("LRRC15+ Fb","LAMP5+ Fb","CTHRC1+ Fb","CCL19+ Fb","PI16+ Fb")]
+  
+  group.by <- scRNA_sub@meta.data$celltype
+  group.by <- factor(group.by, levels = c("CCL19+ Fb","PI16+ Fb","LRRC15+ Fb","CTHRC1+ Fb", "LAMP5+ Fb"))
+  
+  scRNA_sub$celltype <- group.by
+  table(scRNA_sub$celltype)
+  Glycolysis<-c("TIGAR", "PKM",  "GAPDH", "ENO1", "HIF1A",  "HK1", "PGAM1", "ENO2", "PKLR", "ENO3", "PGK1", 
+                "PFKP", "TPI1", "GLTC1",  "PFKL",   "SLC2A1", "PGAM2", "ALDOA")
+  EMT<-c("TGFB1", "ZEB1", "CTNNB1", "AKT1", "PIK3CA", "HIF1A", "SMAD3", "TGFBR1", "MIR21","KRAS", "ITGB1", "MET",
+         "NOTCH1", "TGFBI", "ERBB2", "EGF", "FGFR2", "SMAD4")
+  Cyclic_Nucleotides_Metabolism<-c("PDE3B", "PDE4D", "PDE2A", "PDE1A", "PDE1C", "ADCY10", "CNP", "HCN4", "HCN3",
+                                   "CNGB1", "CNGA3", "CNGB3", "CNGA2", "GNAS", "NLRP3", "ENPP1", "AKT1", "LPL")
+  Fatty_Acids_Oxidation_mitochondrial<-c("HADHA", "HADHB", "ACADVL", "ACADM", "ACAD9", "ACADS", "ACADL", "CPT1A", 
+                                         "CPT2", "SLC25A20", "SLC25A4", "ETFDH", "SDHA", "MT-CYB", "MT-CO1",
+                                         "MT-CO2", "MT-CO3", "NDUFS1")
+  Oxidative_Phosphorylation<-c("NDUFS4", "ATP5F1A", "COX5A", "MTFMT", "PNPT1", "POLRMT", "GFM1", "GFM2", "TUFM",
+                               "TSFM", "MTO1", "SOD1", "CAT","TXN2", "SFXN4", "MRPL44", "MRPS22", "FASTKD2", "PTCD3")
+  Retinol_Metabolism<-c("RBP4", "RPE65", "STRA6", "RDH10", "RDH11", "RDH12", "RDH5", "RDH8", "RDH13", "RDH14",
+                        "RDH16", "LRAT", "ADH7","LEP", "TTR", "ALB", "APOE", "CYP2C9")
+  
+  ave <-  AverageExpression(scRNA_sub,assays = "RNA",features=Oxidative_Phosphorylation,group.by = "celltype",
+                            verbose = T)$RNA
+  {
+    data <- t(scale(t(ave)))
+    font2 <- 8
+    data_transposed <- t(data)
+
+    p <- pheatmap(data_transposed,
+                  fontsize = font2,
+                  cellwidth = font2 + 2,
+                  cellheight = font2 + 2,
+                  cluster_cols = F,
+                  cluster_rows = F,
+                  main = "Retinol_Metabolism");p
+  }
+  
+}
+
+#Figure S3N-T
+{
+  scRNA_harmony= scRNA_RAIDO[,scRNA_RAIDO@meta.data$orig.ident %in% c("GSM8135452","GSM8135453",
+                                                                      "GSM8135456","GSM8135455")]
+  
+  marker_sign<-c("PPP1R13L", "GADD45A", "ERBB2", "RRM2B", "CCND1", "TP53I13", "PML", "PTEN", "TP53INP2", "BBC3", "PURPL", "KLLN", "TP53I11", "CDIP1", "JMY", "PIDD1", "TP53INP1", "BAX", "TP53I3", "CDKN2A", "CDKN1A", "MDM2", "TP53")
+  ave <-  AverageExpression(scRNA_harmony,assays = "RNA",features=marker_sign,group.by = "sample_group",
+                            verbose = T)$RNA
+  data <- t(scale(t(ave)))
+  font2 <- 8
+  data_transposed <- t(data)
+
+  h_type <- pheatmap(data_transposed,
+                     fontsize = font2,
+                     cellwidth = font2 + 2,
+                     cellheight = font2 + 2,
+                     cluster_cols = FALSE,
+                     cluster_rows = FALSE,
+                     main = "scale_t");h_type 
+  
+  # O-Q
+  LAMP5_Fb_genes <- c("PRSS23", "THBS4", "SERPINE2", "COMP", "SFRP2", "CTGF", "LAMP5", "BGN", "VCAN", "LUM",
+                      "APOE", "CCN2", "COL6A3", "SFRP4", "MRPS6", "TIMP1", "ITGBL1", "POSTN", "IGFBP3", "IGFBP2",
+                      "COL5A3", "SEPT11", "OLFML2B", "TNC", "CDH11", "COL8A1", "DIO2", "CTSC", "LTBP2", "CCN5",
+                      "THY1", "TAGLN", "COL6A1", "FMO1", "CALD1", "TNFRSF12A", "IGF1", "TPM1", "ADAM12", "NREP",
+                      "SULF2", "COL14A1", "PLAU", "SPON2", "MARCKS", "PTN", "MXRA5", "SPATS2L", "ASPN", "MGP")
+  
+  object_genes <- rownames(scRNA_harmony@assays$RNA)
+  valid_genes <- LAMP5_Fb_genes[tolower(LAMP5_Fb_genes) %in% tolower(object_genes)]
+  
+  cat("Number of raw genes:", length(LAMP5_Fb_genes), "\n")
+  cat("Number of valid genes in the samples:", length(valid_genes), "\n")
+  cat("Absent genes:", paste(setdiff(LAMP5_Fb_genes, valid_genes), collapse = ", "), "\n")
+
+  if (length(valid_genes) < 3) {
+    stop(paste0("only", length(valid_genes), "genes"))
+  }
+  
+  features_list <- list(LRRC15_Fb = valid_genes)
+  
+  scRNA_harmony <- AddModuleScore(
+    object = scRNA_harmony,
+    features =  features_list,  
+    name = "LAMP5+ Fb",                         
+    ctrl = 100) 
+  
+  p <- DotPlot(scRNA_harmony, group.by = "sample_group",
+               features = "LAMP5+ Fb1", 
+               dot.scale = 10) + 
+    RotatedAxis() +
+    scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
+    labs(title = "cluster markers", y = "", x = "");p
+  
+  DEG <- read.csv("scvi_celltype-DEG.csv")
+
+  gene_sets <- DEG %>% 
+    filter(avg_log2FC > 0.25) %>% 
+    group_by(cluster) %>% 
+    slice_head(n = 50) %>%
+    summarise(genes = list(gene)) %>% 
+    deframe()
+
+  scRNA_harmony <- AddModuleScore(
+    object = scRNA_harmony,
+    features =  features_list,  
+    name = "LAMP5+ Fb",                         
+    ctrl = 100)
+
+  scores <- scRNA_harmony@meta.data[, c("Score_PI161","LAMP5+ Fb1", "Score_LRRC151","Score_PLCG21","orig.ident")]
+
+  TP53_expression <- GetAssayData(scRNA_harmony, assay = "RNA", slot = "data")["TP53", ]
+  combined_data <- data.frame(scores, TP53_expression = as.numeric(TP53_expression))
+  combined_data <- combined_data[combined_data$TP53_expression != 0, ]
+  
+  create_plot <- function(x_col, y_col, data) {
+    corr_result <- cor.test(data[[x_col]], data[[y_col]])
+    corr_coef <- round(corr_result$estimate, 2)
+    p_value <- format(corr_result$p.value, scientific = TRUE, digits = 2)
+    
+    scatter_plot <- ggplot(data, aes_string(x = x_col, y = y_col)) +
+      geom_point(alpha = 0.6) +  
+      geom_smooth(method = "lm", se = FALSE, color = "#C73E3A") +
+      labs(x = x_col, y = y_col) +
+      annotate("text", x = min(data[[x_col]]), y = max(data[[y_col]]), 
+               label = paste0("r = ", corr_coef, ", p = ", p_value), 
+               hjust = 0, vjust = 1) +
+      theme(
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA),
+        panel.background = element_rect(fill = "white"), 
+        plot.background = element_rect(fill = "white"), 
+        axis.title = element_text(size = 15), 
+        axis.text.x = element_text(size = 15), 
+        axis.text.y = element_text(size = 15) 
+      )
+    
+    top_hist <- ggplot(data, aes_string(x = x_col)) +
+      geom_histogram(bins = 30, fill = "gray", color = "black", alpha = 0.5) +
+      geom_density(aes(y = ..count.. * diff(range(data[[x_col]])) / 30), fill = "#FFFF99", alpha = 0.3) +
+      theme_void()
+    
+    right_hist <- ggplot(data, aes_string(x = y_col)) +
+      geom_histogram(bins = 30, fill = "gray", color = "black", alpha = 0.5) +
+      geom_density(aes(y = ..count.. * diff(range(data[[y_col]])) / 30), fill = "#DDA0DD", alpha = 0.3) +
+      coord_flip() +
+      theme_void()
+    
+    plot_layout <- plot_grid(top_hist, NULL, scatter_plot, right_hist, 
+                             ncol = 2, nrow = 2, 
+                             rel_widths = c(2, 0.5), 
+                             rel_heights = c(0.5, 2))
+    return(plot_layout)
+  }
+
+  plot1 <- create_plot("LAMP5..Fb1", "TP53_expression", combined_data);plot1
+  ggsave("Figure3/-tp53-lamp5-.pdf",plot1, width = 3, height =3)
+  
+}
