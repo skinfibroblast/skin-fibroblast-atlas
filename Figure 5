@@ -1,0 +1,651 @@
+library(Seurat)
+library(ggplot2)
+library(cowplot)
+library(ggpubr)
+library(patchwork)
+library(glue)
+library(tidyverse)
+library(ggh4x)
+library(ggfun)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(dplyr)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(STdeconvolve)
+library(png)
+library(ComplexHeatmap)
+library(circlize)
+library(scater)
+library(ggforce)
+library(reshape2)
+library(spacexr)
+library(msigdbr)
+library(org.Mm.eg.db)
+library(wesanderson)
+library(grid)
+library(tidyr)
+library(rstatix)
+library(decoupleR)
+library(tibble)
+library(plotly)
+library(htmlwidgets)
+library(progeny)
+library(viridis)
+library(SeuratData)
+library(forcats)
+library(ggExtra)
+library(MASS)
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+load("py_all_fb2.Rdata")
+
+###Figure 5B
+{
+  data <- data.frame(
+    group = c("CW", "K", "HS", "NS", "W7", "S", "W30", "W1"),
+    value = c(87.9, 8.2, 1.4, 1.4, 0.6, 0.4, 0.2, 0)
+  )
+  data <- data %>%
+    arrange(desc(group)) %>%  
+    mutate(
+      percentage = paste0(round(value, 1), "%"), 
+      label = ifelse(value > 1, paste0(group, "\n", percentage, "\n(", value, ")"), group), 
+      ypos = cumsum(value) - 0.5 * value  
+    )
+  colors <- c(CW = "#1F77B4", K = "#FF7F0E", HS = "#2CA02C", NS = "#D62728",
+    W7 = "#9467BD", S = "#8C564B", W30 = "#E377C2", W1 = "#7F7F7F")
+  
+  a<-ggplot(data, aes(x = "", y = value, fill = group)) +
+    geom_bar(width = 1, stat = "identity", color = "white", linewidth = 0.5) +
+    coord_polar("y", start = 0) +
+    geom_text(
+      aes(y = ypos, label = label),
+      color = "black",
+      size = ifelse(data$value > 1, 3.5, 2.8),
+      fontface = "bold"
+    ) +
+    scale_fill_manual(values = col) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 12),
+      plot.caption = element_text(hjust = 1, color = "gray40"),
+      legend.position = "bottom" 
+    );a
+  ggsave("Figure5-ratio.svg", plot = a, width = 3, height =4)
+}
+
+#Figure 5C
+{
+  scRNA_subh = All_FB[,All_FB@meta.data$sample_group  %in% "CW"]
+  Idents(scRNA_subh)<-scRNA_subh$celltype
+  
+  count_table<-table(scRNA_subh@meta.data[,"celltype"],scRNA_subh@meta.data[,"sample_group"])
+  count_mtx<-as.data.frame.matrix(count_table)
+  count_mtx$cluster<-rownames(count_mtx)
+  melt_mtx<-melt(count_mtx)
+  melt_mtx$cluster<-as.factor(melt_mtx$cluster)
+  cluster_size<-aggregate(value~cluster,data=melt_mtx,FUN=sum)
+  
+  total_cells<-sum(cluster_size$value)
+  cluster_size$percent<-round(cluster_size$value/total_cells*100,1)
+  cluster_size<-cluster_size[order(-cluster_size$value),]
+  cluster_size$cluster<-factor(cluster_size$cluster,levels=rev(cluster_size$cluster))
+  
+  p1 <- ggplot(cluster_size, aes(y = cluster, x = value, fill = cluster)) +
+    geom_bar(position = "dodge", stat = "identity") +
+    theme_bw() +
+    theme(
+      axis.title.x = element_text(size = 10, face = "bold", angle = 0, hjust = 0.5),
+      axis.title.y = element_text(size = 12, face = "bold"),
+      axis.text.x = element_text(size = 12, face = "bold", angle = 340, hjust = 0.5),
+      axis.text.y = element_text(size = 12, face = "bold"),legend.position = "none"
+    ) +
+    xlab("Cells per cluster") +
+    ylab("") +
+    geom_text(aes(label = paste0(value, " (", round(percent, 1), "%)")),
+              position = position_stack(vjust = 0.9),
+              hjust = -0.2,
+              fontface = "bold",size = 5) + 
+    scale_x_continuous(
+      limits = c(0, 40000),
+      breaks = seq(0, 6000, by = 2000),
+      expand = expansion(mult = c(0, 0.1))
+    ) +
+    scale_fill_manual(values = col) 
+  print(p1)
+  ggsave("Figure5-barplot.png", p1, width=8 ,height=3)
+}
+
+{
+  data=read.csv('GSE199939-优势基因表达水平2.csv',row.names = 1)
+  long_data <- data %>%
+    pivot_longer(
+      cols = -Group,
+      names_to = "Gene",
+      values_to = "TPM"
+    ) %>%
+    mutate(
+      Gene = factor(Gene, levels = c("MMP1", "COL4A1", "ACTA2", "TNFAIP6", "LRRC15", "LAMP5","CTHRC1"))
+    )
+
+  stat_test <- long_data %>%
+    group_by(Gene) %>%
+    t_test(TPM ~ Group) %>%
+    adjust_pvalue(method = "BH") %>%
+    add_significance("p.adj") %>%
+    add_xy_position(x = "Gene", dodge = 0.8) %>%
+    mutate(Group = "DW")  
+  group_colors <- c("DW" = "#1f77b4", "S" = "#ff7f0e")
+  max_tpm <- max(long_data$TPM, na.rm = TRUE)
+  stat_test$y.position <- max_tpm * 1.08  # 调整到1.08倍
+  
+  a<-ggplot(long_data, aes(x = Gene, y = TPM, fill = Group)) +
+    stat_summary(
+      fun = mean,
+      geom = "bar",
+      position = position_dodge(0.8),
+      width = 0.7
+    ) +
+    stat_summary(
+      fun.data = mean_se,
+      geom = "errorbar",
+      position = position_dodge(0.8),
+      width = 0.1,
+      size = 0.2
+    ) +
+    stat_pvalue_manual(
+      stat_test,
+      label = "p.adj.signif",
+      tip.length = 0.01,
+      bracket.size = 0.6,
+      size = 13,
+      vjust = 0.5,
+      xmin = "xmin",
+      xmax = "xmax",
+      y.position = "y.position"
+    ) +
+    scale_fill_manual(values = group_colors) +
+    scale_y_continuous(
+      expand = expansion(mult = c(0, 0.2)),
+      limits = c(0, max_tpm * 1.15)  
+    ) +
+    theme_classic() +
+    theme(
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(size = 20, face = "bold"),
+      axis.text.x = element_text(
+        size = 25, 
+        face = "bold", 
+        angle = 30,
+        hjust = 0.5,
+        vjust = 0.5
+      ),
+      axis.text.y = element_text(size = 25,face = "bold"),
+      legend.position = "top",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 25),
+      plot.margin = margin(10, 10, 30, 10)
+    ) +
+    labs(
+      y = "Gene Expression [log2(TPM+1)]",
+      caption = "Data presented as mean ± SEM; \nSignificance levels: ns p > 0.05, * p ≤ 0.05, ** p ≤ 0.01, *** p ≤ 0.001, **** p ≤ 0.0001"
+    );a
+  ggsave("Figure5-bulk validation.svg", plot = a, width = 8, height =7)  
+  
+}
+
+#Figure 5G
+{
+  top_hvg <- c("PI16", "CD55")
+  a <- 0.5
+  {
+    cell_types <- c("CW")  
+    output_dir <- "Figure5"
+
+    if (!require("MASS", character.only = TRUE)) {
+      install.packages("MASS", dependencies = TRUE)
+      library(MASS, character.only = TRUE)
+    }
+    if (!require("ggplot2", character.only = TRUE)) {
+      install.packages("ggplot2", dependencies = TRUE)
+      library(ggplot2, character.only = TRUE)
+    }
+    if (!require("ggExtra", character.only = TRUE)) {
+      install.packages("ggExtra", dependencies = TRUE)
+      library(ggExtra, character.only = TRUE)
+    }
+    
+    {
+      if (!exists("All_FB")) {
+        stop("Error: The Seurat object 'All_FB' does not exist; please verify the object name.")
+      }
+      
+      missing_genes <- setdiff(top_hvg, rownames(All_FB))
+      if (length(missing_genes) > 0) {
+        stop("Error: The following genes are not present in the Seurat object:", paste(missing_genes, collapse=", "))
+      }
+      
+      dat_use <- t(GetAssayData(All_FB, slot = "data")[top_hvg, , drop = FALSE])  
+      dat_use <- as.data.frame(dat_use)
+      
+      if (ncol(dat_use) != length(top_hvg)) {
+        stop("Error: The number of columns in the extracted data does not match the number of genes, which may be due to incorrect gene names.")
+      }
+      
+      celltype <- All_FB@meta.data$sample_group  
+      df <- data.frame(celltype = celltype, dat_use) 
+      
+      if (nrow(df) == 0 || ncol(df) < 3) {
+        stop("Error: The data frame df is empty or has fewer than 3 columns; please verify the single-cell object and gene names.")
+      }
+      
+      expr_cols <- df[, 2:(1+length(top_hvg)), drop = FALSE] 
+      if (nrow(expr_cols) == 0 || ncol(expr_cols) != length(top_hvg)) {
+        stop("Error: The extracted expression data is empty or exhibits a column number mismatch; please verify the accuracy of gene names.")
+      }
+      if (!is.data.frame(expr_cols)) {
+        expr_cols <- as.data.frame(expr_cols)
+      }
+      
+      calculate_percentile <- function(column) {
+        non_zero_values <- column[column != 0]
+        if (length(non_zero_values) == 0) {
+          warning("Warning: All values of a specific gene are zero; quantile calculation may be inaccurate.")
+          return(0)
+        }
+        return(quantile(non_zero_values, probs = a, na.rm = TRUE))
+      }
+      quantile_values <- apply(expr_cols, 2, calculate_percentile)
+      
+      conditions <- lapply(1:length(top_hvg), function(i) {
+        df[, top_hvg[i]] > quantile_values[i]
+      })
+      df$Group <- ifelse(Reduce("&", conditions), "positive", "negative")
+
+      if (!dir.exists(output_dir)) {
+        dir.create(output_dir, recursive = TRUE)
+        cat("Output directory has been created:", output_dir, "\n")
+      }
+      
+      for (cell_type in cell_types) {
+        cat("\nProcessing cell types:", cell_type, "\n")
+        
+        df1 <- subset(df, celltype == cell_type)
+        if (nrow(df1) == 0) {
+          warning("Warning: Cell types", cell_type, "No data available; the analysis was skipped.")
+          next
+        }
+        cat("Sample size:", nrow(df1), "\n")
+
+        density_conditions <- lapply(top_hvg, function(gene) {
+          df1[[gene]] > 0
+        })
+        density_data <- subset(df1, Reduce("&", density_conditions))
+        cat("Valid density data (excluding zero expression):", nrow(density_data), "\n")
+        
+        has_density <- FALSE
+        if (nrow(density_data) >= 5) {
+          var_check <- all(sapply(top_hvg, function(gene) {
+            sd(density_data[[gene]], na.rm = TRUE) > 1e-6
+          }))
+          
+          if (var_check) {
+            bandwidths <- sapply(top_hvg, function(gene) {
+              bw <- bandwidth.nrd(density_data[[gene]]) * 1.2
+              max(bw, 0.1) 
+            })
+            
+            if (length(top_hvg) == 2) {
+              dens <- MASS::kde2d(
+                x = density_data[[top_hvg[1]]],
+                y = density_data[[top_hvg[2]]],
+                h = bandwidths,
+                n = 200 
+              )
+              dens_df <- expand.grid(x = dens$x, y = dens$y)
+              dens_df$z <- as.vector(dens$z)
+              has_density <- TRUE
+            } else {
+              warning("Warning: Currently, only density plot plotting for two genes is supported.")
+            }
+          } else {
+            warning("Warning: The filtered data exhibit excessively small variance, such that density plots and contour lines cannot be generated.")
+          }
+        } else {
+          warning("Warning: Fewer than five valid samples are available; consequently, density plots and contour lines cannot be generated.")
+        }
+        
+        x_max <- max(df1[[top_hvg[1]]], na.rm = TRUE) + 1
+        y_max <- if (length(top_hvg) >= 2) max(df1[[top_hvg[2]]], na.rm = TRUE) + 1 else 0
+        gene_x <- top_hvg[1]
+        gene_y <- if (length(top_hvg) >= 2) top_hvg[2] else ""
+        
+        uniform_gradient <- colorRampPalette(c("white","#FFE4B5","#F0E68C","#FFA07A","#FF4500","red"))
+        colors <- uniform_gradient(20)
+        
+        p <- ggplot(df1, aes_string(x = gene_x, y = gene_y))
+        
+        if (has_density && length(top_hvg) == 2) {
+          p <- p + 
+            geom_raster(
+              data = dens_df, 
+              aes(x = x, y = y, fill = z),
+              alpha = 0.8  
+            ) +
+            scale_fill_gradientn(
+              colours = colors,
+              name = "Density"
+            )
+          
+          p <- p +
+            geom_contour(
+              data = dens_df, 
+              aes(x = x, y = y, z = z),
+              bins = 8,         
+              color = "black",  
+              size = 0.6,       
+              alpha = 0.8       
+            )
+        }
+        
+        p <- p +
+          geom_point(
+            aes(color = Group),
+            size = 1.2,    
+            alpha = 0.6   
+          ) +
+          scale_color_manual(
+            values = c("grey50", "blue") 
+          ) +
+          scale_x_continuous(limits = c(0, x_max)) +
+          scale_y_continuous(limits = c(0, y_max)) +
+          guides(fill = "none", color = "none") 
+        
+        p2 <- p +
+          theme(
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+            axis.title = element_text(size = 35),
+            axis.text = element_text(size = 25, colour = "black", angle = 270, vjust = 0.5),
+            axis.ticks = element_blank(),
+            panel.background = element_rect(fill = "white"),
+            plot.background = element_rect(fill = "white")
+          ) +
+          geom_vline(xintercept = quantile_values[1], linetype = "dashed", color = "black") +
+          geom_hline(yintercept = if (length(top_hvg) >= 2) quantile_values[2] else 0, 
+                     linetype = "dashed", color = "black")
+        
+        if (length(top_hvg) == 2) {
+          total_cells <- nrow(df1)
+          q1 <- sum(df1[[gene_x]] > quantile_values[1] & df1[[gene_y]] > quantile_values[2]) / total_cells
+          q2 <- sum(df1[[gene_x]] < quantile_values[1] & df1[[gene_y]] > quantile_values[2]) / total_cells
+          q3 <- sum(df1[[gene_x]] < quantile_values[1] & df1[[gene_y]] < quantile_values[2]) / total_cells
+          q4 <- sum(df1[[gene_x]] > quantile_values[1] & df1[[gene_y]] < quantile_values[2]) / total_cells
+          
+          label_pos <- 1.2
+          p2 <- p2 +
+            annotate("text", x = label_pos, y = y_max - label_pos/5,
+                     label = paste0(round(q2 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = x_max - label_pos, y = y_max - label_pos/5,
+                     label = paste0(round(q1 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = x_max - label_pos, y = 0 + label_pos/5,
+                     label = paste0(round(q4 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = label_pos, y = 0 + label_pos/5,
+                     label = paste0(round(q3 * 100, 2), "%"), size = 12, color = "black")
+        }
+        
+        a2 <- ggExtra::ggMarginal(
+          p2,
+          type = "density",
+          groupFill = TRUE,
+          fill = c("grey", "#EE5858"),
+          alpha = 0.5,
+          colour = NA 
+        )
+        
+        file_prefix <- paste0(output_dir, "/", cell_type, "-", paste(top_hvg, collapse = "-"))
+        ggsave(
+          filename = paste0(file_prefix, ".pdf"),
+          plot = a2,
+          width = 7,
+          height = 7,
+          device = "pdf"
+        )
+        ggsave(
+          filename = paste0(file_prefix, ".svg"),
+          plot = a2,
+          width = 7,
+          height = 7,
+          device = "svg"
+        )
+        cat("Figures have been saved to:", file_prefix, "\n")
+      }
+      cat("\nAnalysis of all cell types has been successfully completed!\n")
+    }
+  }
+}
+
+#Figure 5I 
+{
+  library(ggrepel)
+  markers<-markers_scarvswound
+  markers <- markers %>%
+    mutate(Difference = pct.1 - pct.2) %>% 
+    rownames_to_column("gene")
+  markers <- markers %>%
+    mutate(change = case_when(
+      Difference > 0 & avg_log2FC > 0.5 ~ "up",
+      Difference < 0 & avg_log2FC < -0.5 ~ "down",
+      TRUE ~ "ns"))
+  
+  a<-ggplot(markers, aes(x=Difference, y=avg_log2FC, color = change)) + 
+    geom_point(size=1.2) + 
+    scale_color_manual('change',labels=c(paste0("down(",table(markers$change)[[1]],')'),
+                                         'ns',
+                                         paste0("up(",table(markers$change)[[3]],')' )),
+                       values=c("#846EB0", "grey","#EA5758" ))+
+    geom_label_repel(data=subset(markers, 
+                                 avg_log2FC >= 1 & Difference >= 0.2 & p_val_adj <= 0.05), 
+                     aes(label=genes), 
+                     color="#EA5758", 
+                     segment.colour = "#EA5758",
+                     label.padding = 0.2, 
+                     segment.size = 0.3,  
+                     size=4,
+                     max.overlaps = 20,
+                     force = 100, 
+                     direction = "both") +  
+    geom_label_repel(data=subset(markers, 
+                                 avg_log2FC <= -1 & Difference <= -0.1 & p_val_adj <= 0.05), 
+                     aes(label=genes), 
+                     label.padding = 0.2, 
+                     color="#846EB0",
+                     segment.colour = "#846EB0",
+                     segment.size = 0.3, size=4,
+                     max.overlaps = 30,
+                     force = 100,  
+                     direction = "both") + 
+    geom_vline(xintercept = 0,linetype = 2) +
+    geom_hline(yintercept = 0,linetype = 2) +
+    labs(x="△ Percentage difference",y="Log-Fold change") + 
+    theme_bw();a
+  ggsave("Figure5/markers_COL4A1-CTHRC1-.svg", a, width = 6.5,height = 5)
+  
+}
+
+#Figure 5J 
+{
+  data=read.csv('Figure5//COL4A1 VS CTHRC1.csv',row.names = 1)
+  plot_data <- data %>%
+    mutate(
+      plot_score = case_when(
+        group %in% c("Group1", "Group3") ~ -abs(adjusted_score),
+        group == "Group2" ~ abs(adjusted_score)
+      ),
+      label_side = ifelse(group == "Group2", "right", "left")
+    ) %>%
+    mutate(term = fct_inorder(term))
+
+  group_colors <- c("Group1" = "#FF6B6B", "Group2" = "#4ECDC4", "Group3" = "#FFD166")
+  
+  a<-ggplot(plot_data, aes(x = plot_score, y = term, fill = group)) +
+    geom_col(width = 0.7) + 
+    geom_vline(xintercept = 0, linetype = "solid", color = "black", linewidth = 0.5) +  # 添加0线
+    
+    geom_text(
+      data = filter(plot_data, label_side == "left"),
+      aes(x = min(plot_data$plot_score) * 0.05, label = term),
+      hjust = -0.1, size = 3.5, color = "black"
+    ) +
+    
+    geom_text(
+      data = filter(plot_data, label_side == "right"),
+      aes(x = max(plot_data$plot_score) * 0.05, label = term),
+      hjust = 1.07, size = 3.5, color = "black"
+    ) +
+    theme_bw() +
+    theme(
+      panel.background = element_rect(fill = "white"),
+      plot.background = element_rect(fill = "white"),
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.title.x = element_text(size = 12, face = "bold"),
+      axis.text.x = element_text(size = 10),
+      axis.line.x = element_line(color = "black"),
+      legend.position = "top",
+      legend.title = element_blank(),
+      legend.background = element_rect(fill = "white"),
+      plot.margin = margin(1, 1.5, 1, 1.5, "cm")
+    ) +
+    labs(x = "Enrichment Score") +
+    scale_fill_manual(values = group_colors) +
+    scale_x_continuous(expand = expansion(mult = c(0.15, 0.15)));a  
+  ggsave(file="Figure5/enrichment.svg",a,width = 8,height = 4)
+}
+
+
+# Figure 5K
+{
+  ##5K-I
+  col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#FF7F00","#1F78B4","#B3D88B",  "#FF7F00","#64B482",
+                "#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB", "#800080",
+                "#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+  a<-plot_cell_trajectory(cds,
+                        show_cell_names=F,
+                        color_by = "celltype", 
+                        cell_size = 1.5, 
+                        cell_link_size = 1.5,
+                        color_cells = col)+ 
+  scale_color_manual(values = col);a 
+  ggsave("Figure5\\Pseudotime.svg", plot = a, width = 8, height =7)
+
+##5K-ii-v
+  col2 <- c("#761C78", "white", "tomato")  
+  b<-plot_cell_trajectory(cds,
+                        show_cell_names = FALSE,
+                        color_by = "Progenitor_like_fibroblasts",
+                        cell_size = 1.5,
+                        cell_link_size = 1.5) +
+  scale_color_gradientn(colors = col2);b
+  ggsave("Figure5\\Pseudotime2.svg", plot = b, width = 8, height =7)
+}
+
+
+##Figure 5L
+{
+  col<-c("#9370DB","#FDBF6F","#B3D88B","#FB9A99","#800080","#C73E3A","#1F78B4" ,"#FF7F00", "#FF7F00","#64B482",
+                  "#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB", "#800080","#9370DB", "#DDA0DD", 
+                  "#7FFFD4", "#00CED1", "#AFEEEE")
+  c<-plot_cell_trajectory(cds,
+                        color_by = "sample_group") +   
+  facet_wrap("~sample_group", 
+             ncol=2)+ scale_color_manual(values = col);c
+  ggsave("Figure5\\Pseudotime3.svg", plot = c, width = 7, height =11)
+
+  df <- pData(cds)  
+  d<-ggplot(df,
+          aes(Pseudotime, 
+              colour = celltype,
+              fill = celltype)) + 
+  geom_density(
+    bw=0.5,
+    size=0.4,
+    alpha=0)+
+  theme_classic2()+
+  scale_color_manual(values = col)+theme(
+    legend.position = "none"  
+  );d
+  ggsave("Figure5\\Pseudotime4.svg", plot = d, width = 7, height =2.5)
+}
+
+
+#Figure 5M
+{
+  pData(cds)$LRRC15=log2(exprs(cds)['LRRC15',]+1)
+  plot_cell_trajectory(cds, color_by = 'LRRC15') +   
+  scale_color_gradientn(colors = col2)
+
+  expressed_genes <- row.names(subset(fData(cds),
+                                    num_cells_expressed>=10))
+  cds$id <- colnames(cds)
+  diff_test <- differentialGeneTest(cds[expressed_genes,], 
+                                  cores = 6,  
+                                  fullModelFormulaStr = "~sm.ns(Pseudotime)")
+
+sig_gene_names <- rownames(diff_test %>%
+                             filter(qval < 0.01) %>%
+                             arrange(qval)) %>% 
+  as.character()
+  custom_colors <- colorRampPalette(c("#761C78", "white", "#EE5858"))(100)
+
+
+  a <- plot_pseudotime_heatmap(
+  cds[sig_gene_names[1:100],],
+  num_clusters = 8,
+  cores = 6,
+  show_rownames = TRUE,
+  return_heatmap = TRUE,hmcols = custom_colors  
+); a 
+  gene_names <- rownames(exprs(cds[sig_gene_names[1:100], ]))[a$tree_row$order]
+
+  gene_clusters <- cutree(a$tree_row, k = 3)[a$tree_row$order]
+
+  gene_cluster_df <- data.frame(
+  gene_name = gene_names,
+  cluster = gene_clusters,
+  stringsAsFactors = FALSE
+)
+
+  head(gene_cluster_df)
+  write.csv(gene_cluster_df,"Figure5//Pseudotime5.csv",row.names = T)
+  custom_colors <- colorRampPalette(c("blue", "white", "red"))(100)
+  pheatmap(
+  mat = expr_matrix,
+  color = custom_colors,
+  show_rownames = TRUE,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  treeheight_row = 10,
+  treeheight_col = 0
+)
+}
