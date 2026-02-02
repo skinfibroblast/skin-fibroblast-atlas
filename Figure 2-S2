@@ -1,0 +1,606 @@
+library(Seurat)
+library(SeuratData)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(tidyverse)
+library(readr)
+library(stringr)
+library(reshape2)
+library(rstatix)
+library(ggplot2)
+library(patchwork)
+library(pheatmap)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(scales)
+library(paletteer)
+library(wesanderson)
+library(viridis)
+library(ggrepel)
+library(ggforce)
+library(ggpubr)
+library(ggrastr)
+library(cowplot)
+library(plotly)
+library(htmlwidgets)
+library(grid)
+library(SingleR)
+library(CellChat)
+library(scRNAtoolVis)
+library(harmony)
+library(Nebulosa)
+library(scCustomize)
+library(STdeconvolve)
+library(spacexr)
+library(scater)
+library(msigdbr)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(org.Hs.eg.db)
+library(progeny)
+library(decoupleR)
+library(devtools)
+library(reticulate)
+library(Matrix)
+library(png)
+library(circlize)
+library(htmlwidgets)
+
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+load("py_all_fb2.Rdata")
+
+
+
+#Figure 2A
+{
+  # cell type markers
+  marker_sign<-c("ASPN", "CTHRC1", "MDK", "CCL19", "APOE", "CXCL12", "PI16", "WISP2", "CFD", "PRSS23", "THBS4", 
+                 "SERPINE2", "APCDD1", "DCD", "DIO2", "SOD2", "TNFAIP6", "GEM", "TAGLN", "EPAS1", "COL4A1",
+                 "COL12A1", "COL3A1", "FN1", "MMP1", "CXCL13", "CXCL8", "COCH", "TNN", "CRABP1", "KRT14", "KRT1",
+                 "KRT5", "CD74", "SELE", "PECAM1", "TIMP3", "IGFBP2", "SFRP1", "IGKC", "HLA-DRA", "HLA-DRB1", 
+                 "APOD", "CCL2", "ANGPTL7", "S100B", "IGFBP5", "PCDH20")
+  ave <-  AverageExpression(All_FB,assays = "RNA",features=marker_sign,group.by = "celltype",
+                            verbose = T)$RNA
+  data <- t(scale(t(ave)))
+  font2 <- 8
+  data_transposed <- t(data)
+  h_type <- pheatmap(data_transposed,
+                     fontsize = font2,
+                     cellwidth = font2 + 2,
+                     cellheight = font2 + 2,
+                     cluster_cols = FALSE,
+                     cluster_rows = FALSE,
+                     main = "scale_t",
+                     color = col2);h_type  # apply custom colors
+
+  sce <- as.SingleCellExperiment(All_FB)  
+  celltype_mean <- aggregateAcrossCells(as(sce, "SingleCellExperiment"),
+                                        ids = sce$celltype,
+                                        statistics = "mean",
+                                        use.assay.type = "counts",
+                                        subset.row = marker_sign)
+  
+  anno <- colData(celltype_mean) %>%   
+    as.data.frame %>%   
+    select(celltype,ncells);anno
+  
+  AUCell <- colData(sce) %>%   
+    as.data.frame() %>%   
+    select(celltype, Fibroblast) %>%   
+    group_by(celltype) %>%   
+    summarise(Fibroblast = mean(Fibroblast)) %>%   
+    as.data.frame() %>%   column_to_rownames("celltype");AUCell
+  
+  n_PID <- colData(sce) %>%   
+    as.data.frame() %>%   
+    select(celltype, orig.ident) %>%   
+    group_by(celltype) %>% 
+    table() %>%   
+    as.data.frame() %>%   
+    dplyr::filter(Freq>0) %>%   
+    dplyr::group_by(celltype) %>%   
+    dplyr::count(name = "sample") %>%   
+    column_to_rownames("celltype");n_PID
+  
+  sample_source <- unclass(prop.table(table(sce$celltype,sce$sample_group2), margin = 1))
+  sample_type <- unclass(prop.table(table(sce$celltype,sce$sample_group), margin = 1))
+  my36colors <-c('#53A85F', '#F1BB72', '#D6E7A3', '#57C3F3', '#476D87', '#E95C59', '#E59CC4', '#AB3282', 
+                          '#23452F', '#BD956A', '#8C549C', '#585658', '#9FA3A8', '#5F3D69', '#C5DEBA', '#58A4C3', 
+                          '#E4C755', '#F7F398', '#AA9A59', '#E63863', '#E39A35', '#C1E6F3', '#6778AE', '#91D0BE', 
+                          '#B53E2B', '#712820', '#DCC1DD', '#CCE0F5', '#CCC9E6', '#625D9E', '#68A180', '#3A6963',
+                          '#968175', '#E5D2DD', '#E0D4CA', '#F3B1A0')
+                          
+  col.list <- list(celltype = c("CTHRC1+ Fb" = "#FB9A99", 
+                                "CCL19+ Fb" = "#C73E3A", 
+                                "PI16+ Fb" = "#FDBF6F", 
+                                "LAMP5+ Fb" = "#A6CEE3", 
+                                "APCDD1+ Fb" = "#1F78B4", 
+                                "TNFAIP6+ Fb" = "#B3D88B", 
+                                "COL4A1+ Fb" = "#FF7F00", 
+                                "LRRC15+ Fb" = "#64B482", 
+                                "MMP1+ Fb" = "#FFFF99", 
+                                "COCH+ Fb" = '#bf033b', 
+                                "KRT+ Fb" = "darkred", 
+                                "AQP1+ Fb" = "#A0522D", 
+                                "IGFBP2+ Fb" = "#DAA520", 
+                                "IGKC+ Fb" = "#FFC0CB", 
+                                "ANGPTL7+ Fb" = "#800080", 
+                                "S100B+ Fb" = "#9370DB"))
+  
+  ha_anno <- HeatmapAnnotation(celltype = anno$celltype, border = TRUE, 
+                               gap = unit(1,"mm"), col = col.list,
+                               which = "row")
+  
+  ha_meta <- HeatmapAnnotation(
+    cell_counts = anno_barplot(anno$ncells, width = unit(10, "mm")),
+    sample = anno_barplot(n_PID, width = unit(12, "mm")),
+    fb_scoure = anno_points(AUCell, width = unit(15, "mm")),
+    sample_source = anno_barplot(sample_source, width = unit(20, "mm"),
+                                 gp = gpar(fill = my36colors)),
+    sample_type = anno_barplot(sample_type, width = unit(10, "mm"),
+                               gp = gpar(fill = my36colors)),
+    border = TRUE,annotation_name_rot = 90,gap = unit(c(2, 2, 2, 2.5), "mm"), 
+    which = "row")
+  
+  h_list <- h_type +  
+    ha_anno +  
+    ha_meta
+  
+  lgd <- Legend(title = "sample_source",               
+                at = colnames(sample_source),               
+                legend_gp = gpar(fill = my36colors))
+  lgd2 <- Legend(title = "sample_type",                
+                 at = colnames(sample_type),                
+                 legend_gp = gpar(fill = my36colors))
+  draw(h_list,annotation_legend_list = list(lgd,lgd2))
+  
+}
+
+#Figure 2B
+{
+  plot_data <- FetchData(
+    object = All_FB,
+    vars = c("Inflammatory_fibroblasts", "celltype"))
+  
+  colnames(plot_data)[1] <- "Score"
+  mean_score <- mean(plot_data$Score)
+  mean_scores <- aggregate(Score ~ celltype, data = plot_data, FUN = mean)
+  mean_scores <- mean_scores[order(mean_scores$Score, decreasing = TRUE), ]
+  plot_data$celltype <- factor(plot_data$celltype, levels = mean_scores$celltype)
+  a <- ggplot(plot_data, aes(x = celltype, y = Score, color = celltype, fill = celltype)) +
+    geom_violin(scale = "width", trim = TRUE, width = 0.75) + 
+    scale_color_manual(values = col) +          
+    scale_fill_manual(values = col) +
+    geom_hline(yintercept = mean_score, linetype = 2, color = "black", linewidth = 0.3) +
+    theme(
+      panel.background = element_rect(fill = "white"),
+      axis.line = element_line(color = "black", linewidth = 0.5),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.text.x = element_text(size = 22, angle = 30, hjust = 1, family = "Arial", colour = "black"),
+      axis.title.x = element_text(size = 15, family = "Arial", colour = "black"),
+      axis.text.y = element_text(size = 30, family = "Arial", colour = "black"),
+      axis.title.y = element_text(size = 15, family = "Arial", colour = "black"),
+      legend.text = element_text(size = 15, family = "Arial", colour = "black"),
+      legend.title = element_text(size = 15, family = "Arial", colour = "black"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, hjust = 0.5, family = "Arial")  
+    )
+  print(a)
+  ggsave("Figure2B.svg", plot = a, width = 10, height =3)
+  
+}
+
+#Figure 2C
+{
+  library(dplyr)
+  library(ggplot2)
+  library(ggforce) 
+  library(ggpubr)
+  library(reshape2)
+  Idents(All_FB)<-All_FB$celltype
+  Cellratio <- prop.table(table(Idents(All_FB), All_FB$orig.ident), margin = 2)
+  Cellratio <- as.data.frame(Cellratio)
+  Cellratio <- Cellratio %>%
+    mutate(Group = case_when(
+      grepl("^K\\d+", Var2) ~ "Keloid",
+      grepl("^HS\\d+", Var2) ~ "Hypertrophic scar",
+      grepl("^NS\\d+", Var2) ~ "Normal scar",
+      grepl("^S\\d+", Var2) ~ "Skin",
+      grepl("^AWD0\\d+", Var2) ~ "S",
+      grepl("^AWD1\\d+", Var2) ~ "Wound day1",
+      grepl("^AWD7\\d+", Var2) ~ "Wound day7",
+      grepl("^AWD30\\d+", Var2) ~ "Wound day30",
+      grepl("^diac\\d+", Var2) ~ "Chronic wound",
+      TRUE ~ as.character(NA) 
+    ))
+  
+  a <- ggplot(Cellratio , aes(Group, Freq, color = Group, fill = Group)) +
+    geom_boxplot(width = 0.8, alpha = 0.2, outlier.fill = NA, outlier.color = NA) + 
+    geom_jitter(width = 0.2, alpha = 0.5,color = "black") +
+    scale_color_manual(values = col) +
+    scale_fill_manual(values = col) +
+    theme_bw() +
+    labs(y = "Cell ratio", x = "", size = 40) +
+    stat_compare_means(aes(label = after_stat(p.adjust(..p..) < 0.05)),
+                       comparisons = list(),
+                       method = "t.test", bracket.size = 0.001, step.increase = 1,
+                       size = 4, label = "p.signif", vjust = -0.4) +
+    scale_y_continuous(limits = c(0,1),expand = c(0.05, 0.05)) +
+    facet_wrap(~Var1, nrow = 4, ncol = 4, scales = "fixed") +
+    theme(axis.text = element_text(color = "black", size = 11),
+          axis.line = element_blank(),
+          axis.text.x = element_text(size = 11, angle = 90, vjust = 0.5),
+          axis.text.y = element_text(size = 11),
+          axis.title.y = element_text(size = 11),
+          panel.spacing = unit(2, "lines"),
+          strip.text.x = element_text(size = 11),
+          axis.line.y = element_blank(),  
+          axis.ticks.y = element_blank(),  
+          legend.position = "none") + 
+    scale_x_discrete(limits = c("Skin", "Wound day1", "Wound day7", "Wound day30", "Normal scar", 
+                                "Hypertrophic scar", "Keloid", "Chronic wound"))
+  print(a)
+  ggsave("Figure2/cellratio.svg",a,wi=8,he=3)
+}
+
+#Figure 2D
+{
+  count_table<-table(All_FB@meta.data[,"celltype"],All_FB@meta.data[,"sample_group"])
+  Cellratio <- as.data.frame(count_table)
+  p3<-ggplot(Cellratio, aes(x=Var2, y=Freq, fill=Var1)) +
+    geom_bar(position="fill", stat="identity") +
+    theme_bw() +
+    coord_flip() +
+    ylab("Fraction of cells in each sample") +
+    xlab("Samples") +
+    scale_fill_manual(values = col) + 
+    theme(
+      axis.title.x = element_text(size = 22, face = "bold"),
+      axis.text.x = element_text(size = 22, face = "bold", angle = 0, hjust = 0.5),
+      axis.text.y = element_text(size = 20, face = "bold"),
+      axis.title.y = element_text(size = 22, face = "bold"),
+      legend.title = element_text(size = 22, face = "bold"),
+      legend.text = element_text(size = 22, face = "bold"),
+      legend.position = "bottom",
+      legend.spacing.x = unit(5, "cm"), 
+      legend.spacing.y = unit(5, "cm"), 
+      legend.box.just = "top" 
+    );p3
+  ggsave("Figure2/cell_ratio_all.svg", p3, width=9 ,height=6)}
+
+#Figure 2E
+{
+  a<-DimPlot(All_FB, reduction = "umap", group.by = "celltype",
+             cols = col,
+             pt.size = 1,
+             label = T,label.box = T);a
+  ggsave("Figure2\\umap.svg",a,width=7,height=5)
+}
+
+#Figure 2H, S2H-I
+{
+  SpatialPlot(P,label = T)&scale_fill_manual(values = col)&ggtitle('ST data')
+  spatial_count <- P@assays$Spatial@counts
+  head(spatial_count)
+  slice_names <- names(P@images)
+  print(slice_names)
+  coords <- P@images[["spatial"]]@coordinates
+  head(coords)
+  coords<-coords[,2:3]
+  query  <- SpatialRNA(coords, spatial_count)
+  sc_counts <- scRNA@assays[["RNA"]]@counts
+  Celltype <- as.factor(scRNA$celltype)
+  names(Celltype) <- colnames(scRNA)
+  
+  reference <- Reference(sc_counts,Celltype,n_max_cells = 126478) 
+  
+  RCTD <- create.RCTD(query, reference, max_cores = 1)
+  RCTD <- run.RCTD(RCTD, doublet_mode = "doublet") 
+
+  weights <- RCTD@results$weights
+  norm_weights <- normalize_weights(weights)
+
+  result <- as.matrix(norm_weights)
+  local <- RCTD@spatialRNA@coords
+  head(local)
+
+  vizAllTopics(theta = result,
+               pos = local,
+               topicOrder=seq(ncol(result)),
+               topicCols=col,
+               r = 0.7, # size of scatterpies
+               lwd = 0.2,
+               showLegend = TRUE,
+               plotTitle = "Cell proportion")
+  
+  local_restored <- data.frame(
+    x = local$x,  
+    y = local$y    
+  )
+  rownames(local_restored) <- rownames(local)  
+
+  current_ratio <- (max(local$x) - min(local$x)) / (max(local$y) - min(local$y))
+  
+  scaled_pos <- local
+  scaled_pos$y <- scaled_pos$y * current_ratio  
+
+  a <- vizAllTopics(
+    theta = result,
+    pos = scaled_pos,  
+    topicOrder = c("TNFAIP6+ Fb", "MMP1+ Fb", "PI16+ Fb", "CCL19+ Fb","AQP1+ Fb", "PLCG2+ Fb","LRRC15+ Fb", "LAMP5+ Fb"),
+    topicCols = col,
+    r = 0.7,
+    lwd = 0.02,
+    showLegend = TRUE,
+    plotTitle = "Cell proportion"
+  );a
+  ggsave("Figure2\\RCTD-.svg", plot = a, width = 5, height =5)
+
+  RCTD_1<- as.data.frame(norm_weights)
+  head(RCTD_1)
+  P<-AddMetaData(P,metadata =RCTD_1)
+
+  selected_data <- P@meta.data[, colnames(RCTD_1)]
+  selected_data[is.na(selected_data)] <- 0
+
+  result_df <- as.data.frame(selected_data)
+  head(result_df)
+  P<-AddMetaData(P,metadata =selected_data)
+  
+  a<-SpatialFeaturePlot(P,features = colnames(RCTD_1));a
+  ggsave("Figure2\\RCTD2-.svg", plot = b, width = 3, height =3)
+}
+
+#Figure S2A
+{
+  gene<-c("SCX","CCL19","PI16","LAMP5","APCDD1","TNFAIP6","COL4A1","PLCG2","MMP1","COCH","KRT14","AQP1",
+          "IGFBP2","IGKC","ANGPTL7","S100B")
+  p000 <- Plot_Density_Custom(All_FB, gene, custom_palette = col2) +
+                       theme(panel.grid.major = element_blank(), 
+                             panel.grid.minor = element_blank(), 
+                             panel.border = element_blank(), 
+                             axis.title = element_blank(),  
+                             axis.text.x  = element_blank(), 
+                             axis.text.y  = element_blank(),
+                             axis.ticks = element_blank(), 
+                             panel.background = element_rect(fill = 'white'), 
+                             plot.background = element_rect(fill = "white"), 
+                             legend.text = element_text(size = 0), 
+                             axis.line = element_blank(), 
+                             axis.line.x = element_blank(), 
+                             axis.line.y = element_blank(),
+                             legend.position = "none");p000 
+  ggsave("FigureS2\\feature-plot.svg", plot = p000, width = 3, height =3)
+}
+
+#Figure S2B
+{
+  PI16<-c("MFAP5", "CLEC3B", "IGFBP6", "CFD", "PI16", "GSN", "TNXB", "PCOLCE2", "EFEMP1", "S100A10", "FBN1", "SLPI", "PLA2G2A", "DCN", "FBLN2", "CCDC80", "CD55", "PLAC9", "CST3", "FSTL1", "MGST1", "FBLN1", "C1QTNF3", "CD248", "ACKR3", "WISP2", "SEMA3C", "SFRP4", "DPT", "ADH1B", "S100A4", "SCARA5", "PTGIS", "C3", "CD34", "TPPP3", "SH3BGRL3", "OGN", "MFAP4", "KLF4", "LTBP4", "S100A6", "GPNMB", "RARRES1", "ANXA2", "EMP3", "CHRDL1", "ANXA1", "CILP", "UAP1")
+  COL15A1<-c("APOD", "C3", "CFD", "PTGDS", "GSN", "SRPX", "IGF1", "CXCL12", "CCDC80", "ITM2A", "DPT", "ADH1B", "CFH", "FBLN1", "MGST1", "DCN", "SVEP1", "CXCL14", "ABCA10", "ABCA6", "SFRP2", "NOVA1", "GPC3", "SERPINF1", "LRP1", "SPRY1", "GPNMB", "MGP", "FGF7", "IGFBP4", "RARRES1", "ABCA9", "RNASE4", "C1S", "SERPING1", "SEPP1", "ALDH1A1", "FBLN2", "EFEMP1", "CHRDL1", "PODN", "FGL2", "COL15A1", "C1R", "PDGFRL", "ABCA8", "HSPB6", "NFIA", "CYBRD1", "ZFP36L2")
+  
+  All_FB <- AddModuleScore(
+    object = All_FB,
+    features = list(MSC_Score = COL15A1),  
+    name = "COL15A1_score",                        
+    ctrl = 100)
+  
+  plot_data <- FetchData(object = All_FB,
+                         vars = c("COL15A1_score1","celltype"))
+
+  mean_score <- mean(plot_data$COL15A1_score1)
+  mean_scores <- aggregate(COL15A1_score1 ~ celltype, data = plot_data, FUN = mean)
+  mean_scores <- mean_scores[order(mean_scores$COL15A1_score1, decreasing = TRUE), ]
+  plot_data$celltype <- factor(plot_data$celltype, levels = mean_scores$celltype)
+
+  a <- ggplot(plot_data, aes(x = celltype, y = COL15A1_score1, color = celltype, fill = celltype)) +
+    geom_violin(scale = "width", trim = TRUE, width = 0.75) + 
+    scale_color_manual(values = col) + 
+    scale_fill_manual(values = col) +
+    geom_hline(yintercept = mean_score, linetype = 2, color = "black", linewidth = 0.3) +
+    theme(
+      panel.background = element_rect(fill = "white"),
+      axis.line = element_line(color = "black", linewidth = 0.5), 
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.text.x = element_text(size = 15,angle = 90,colour = "black"),
+      axis.title.x = element_text(size = 15, family = "Arial",colour = "black"),
+      axis.text.y = element_text(size = 15, family = "Arial",colour = "black"),
+      axis.title.y = element_text(size = 10, family = "Arial",colour = "black"),
+      legend.text = element_text(size = 15, family = "Arial",colour = "black"),
+      legend.title = element_text(size = 15, family = "Arial",colour = "black"),
+      legend.position = "none",
+      plot.title = element_text(size = 18, hjust = 0.5, family = "Arial")  
+    )
+  print(a)
+  ggsave("FigureS2\\violin_plot_col15a1.svg", plot = a, width = 10, height =3)
+}
+
+#Figure S2C-D
+{
+  #(i)
+  PI16<-c("MFAP5", "CLEC3B", "IGFBP6", "CFD", "PI16", "GSN", "TNXB", "PCOLCE2", "EFEMP1", "S100A10", "FBN1", "SLPI", "PLA2G2A", "DCN", "FBLN2", "CCDC80", "CD55", "PLAC9", "CST3", "FSTL1", "MGST1", "FBLN1", "C1QTNF3", "CD248", "ACKR3", "WISP2", "SEMA3C", "SFRP4", "DPT", "ADH1B", "S100A4", "SCARA5", "PTGIS", "C3", "CD34", "TPPP3", "SH3BGRL3", "OGN", "MFAP4", "KLF4", "LTBP4", "S100A6", "GPNMB", "RARRES1", "ANXA2", "EMP3", "CHRDL1", "ANXA1", "CILP", "UAP1", "AC090498.1", "PDGFRL", "CADM3", "ITM2A", "OSR2", "TGFBR3", "FHL1", "CRIP1", "ABI3BP", "F10", "RAMP2", "PROCR", "SFRP2", "UGDH", "SERPINF1", "DBN1", "CLU", "LSP1", "LINC01133", "RP11-14N7.2", "LRRN4CL", "ADAMTS5", "PODN", "CYBRD1", "HSPB6", "ELN", "ABLIM1", "LEPR", "PRELP", "AHNAK", "ADD3", "VAT1", "ZNF385A", "HTRA3", "HSD3B7", "MGP", "PAMR1", "DDAH2", "ISLR", "IGF2", "PIGT", "PTRF", "PRSS23", "S100A13", "PPIC", "ADAMTSL4", "PMP22", "CREB5", "REXO2", "AHNAK2")
+  COL15A1<-c("APOD", "C3", "CFD", "PTGDS", "GSN", "SRPX", "IGF1", "CXCL12", "CCDC80", "ITM2A", "DPT", "ADH1B", "CFH", "FBLN1", "MGST1", "DCN", "SVEP1", "CXCL14", "ABCA10", "ABCA6", "SFRP2", "NOVA1", "GPC3", "SERPINF1", "LRP1", "SPRY1", "GPNMB", "MGP", "FGF7", "IGFBP4", "RARRES1", "ABCA9", "RNASE4", "C1S", "SERPING1", "SEPP1", "ALDH1A1", "FBLN2", "EFEMP1", "CHRDL1", "PODN", "FGL2", "COL15A1", "C1R", "PDGFRL", "ABCA8", "HSPB6", "NFIA", "CYBRD1", "ZFP36L2", "ABI3BP", "TXNIP", "OGN", "LAMA2", "MFAP4", "PLTP", "BOC", "FBLN5", "FXYD1", "MT1X", "ADD3", "SLIT3", "CST3", "PLPP3", "NFIB", "GLUL", "EPHX1", "RASD1", "TSHZ2", "GPX3", "PIK3R1", "MT-ND4L", "PLA2G2A", "APOE", "CD248", "C7", "CD34", "MYCBP2", "DCLK1", "LGALS3", "S100A13", "TCF7L2", "TNFAIP2", "OLFML3", "METTL7A", "LIMA1", "ANGPTL1", "MT-ATP8", "REV3L", "PLAC9", "HSPG2", "BICC1", "RGMA", "RUNX1T1", "PDK4", "LHFP", "SOD3", "SELENOP", "PID1", "PDGFRA")
+  cs<-read.csv("scvi_celltype-DEG.csv",row.names = 1)
+  top_genes <- cs %>%
+    group_by(cluster) %>%
+    top_n(100, wt = avg_log2FC) %>%
+    ungroup()
+  
+  overlap_rates <- top_genes %>%
+    group_by(cluster) %>%
+    summarise(
+      overlap_ratio = length(intersect(gene, COL15A1)) / 100
+    ) %>%
+    ungroup()
+  
+  result_df <- data.frame(
+    CellType = overlap_rates$cluster,
+    OverlapRatio = overlap_rates$overlap_ratio
+  )
+  result_dfpi16<-result_df
+  result_dfcol15a1<-result_df
+  
+  result_df <- result_df %>%
+    arrange(desc(OverlapRatio)) %>%
+    mutate(
+      CellType = factor(CellType, levels = CellType),
+      id = row_number(),
+      angle = 90 - 360 * (id - 0.5)/nrow(.),
+      label_y = OverlapRatio + 0.05 
+    )
+
+  ggplot(result_df, aes(x = CellType, y = OverlapRatio, fill = CellType)) +
+    geom_col(width = 0.3, color = "white", linewidth = 0.3) + 
+    geom_text(
+      aes(y = OverlapRatio * 0.95,  
+          label = sprintf("%.2f", OverlapRatio),
+          angle = result_df$angle),
+      color = "black",
+      size = 3.5,
+      hjust = ifelse(result_df$angle < -90, 1, 0), 
+      show.legend = FALSE
+    ) +
+    
+    geom_text(
+      data = result_df,
+      aes(x = CellType, y = OverlapRatio * 1.05,  
+          label = CellType,
+          angle = result_df$angle),
+      color = "gray40",
+      size = 3,
+      hjust = ifelse(result_df$angle < -90, 1, 0), 
+      show.legend = FALSE
+    ) +
+    
+    coord_polar(start = -0.2, clip = "off") +
+    scale_fill_manual(values = col[1:nrow(result_df)]) +  
+    ylim(-0.3, max(result_df$OverlapRatio) * 1.2) +  
+    
+    theme_minimal() +
+    theme(
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      panel.grid = element_blank(),
+      legend.position = "none",
+      plot.margin = margin(1, 1, 1, 1, "cm")  
+    )
+  
+  
+  ##(ii) calculate cell scores
+  PI16<-c("MFAP5", "CLEC3B", "IGFBP6", "CFD", "PI16", "GSN", "TNXB", "PCOLCE2", "EFEMP1", "S100A10", "FBN1", "SLPI", "PLA2G2A", "DCN", "FBLN2", "CCDC80", "CD55", "PLAC9", "CST3", "FSTL1", "MGST1", "FBLN1", "C1QTNF3", "CD248", "ACKR3", "WISP2", "SEMA3C", "SFRP4", "DPT", "ADH1B", "S100A4", "SCARA5", "PTGIS", "C3", "CD34", "TPPP3", "SH3BGRL3", "OGN", "MFAP4", "KLF4", "LTBP4", "S100A6", "GPNMB", "RARRES1", "ANXA2", "EMP3", "CHRDL1", "ANXA1", "CILP", "UAP1")
+  COL15A1<-c("APOD", "C3", "CFD", "PTGDS", "GSN", "SRPX", "IGF1", "CXCL12", "CCDC80", "ITM2A", "DPT", "ADH1B", "CFH", "FBLN1", "MGST1", "DCN", "SVEP1", "CXCL14", "ABCA10", "ABCA6", "SFRP2", "NOVA1", "GPC3", "SERPINF1", "LRP1", "SPRY1", "GPNMB", "MGP", "FGF7", "IGFBP4", "RARRES1", "ABCA9", "RNASE4", "C1S", "SERPING1", "SEPP1", "ALDH1A1", "FBLN2", "EFEMP1", "CHRDL1", "PODN", "FGL2", "COL15A1", "C1R", "PDGFRL", "ABCA8", "HSPB6", "NFIA", "CYBRD1", "ZFP36L2")
+
+  All_FB <- AddModuleScore(
+    object = All_FB,
+    features = list(MSC_Score = PI16),  
+    name = "PI16",                         
+    ctrl = 100)          
+  
+  ## rename cell names
+  celltype=read.csv('PI16-CELLTYPE.csv')
+  table(All_FB$celltype)
+  All_FB@meta.data$sample_group2<-All_FB@meta.data$sample_group
+  All_FB@meta.data$PI16GROUP = "NA"
+  for(i in 1:nrow(celltype)){
+  All_FB@meta.data[which(All_FB@meta.data$celltype == celltype$ClusterID[i]),'PI16GROUP'] <- celltype$celltype[i]}
+
+  table(All_FB$PI16GROUP)
+  Idents(All_FB)<-All_FB$PI16GROUP
+
+  col<-c("#FFFF99","#64B482")
+  violin_after_scm <- VlnPlot(All_FB,
+                              "PI161", 
+                              pt.size = 0,
+                              cols = col);violin_after_scm
+  
+  ggsave("FigureS2\\violin_plot.svg",violin_after_scm,width=3,height=3) 
+}
+
+#Figure S2E
+{
+  scobj<-All_FB
+  {
+    scobj@meta.data$celltype <- as.character(scobj@meta.data$celltype)
+    unique_cell_types <- unique(scobj@meta.data$celltype)
+    cell_indices <- list()
+    seed=45
+    for (cell_type in unique_cell_types) {
+      indices <- which(scobj@meta.data$celltype == cell_type)
+      num_cells_to_sample <- ceiling(length(indices)/50)
+      sampled_indices <- sample(indices, size = num_cells_to_sample)
+      cell_indices[[cell_type]] <- sampled_indices
+    }
+    
+    all_sampled_indices <- unlist(cell_indices)
+    scobj <- subset(scobj, cells = all_sampled_indices)
+    table(scobj$celltype)
+  }
+  
+  signature_df <- read_csv("markergene.csv", show_col_types = FALSE)
+  cleaned_pathway_names <- signature_df$`Gene signature` %>%
+    str_replace_all("[^a-zA-Z0-9_]", "_") %>%
+    str_replace_all("_+", "_") %>%
+    str_trim(side = "both") %>%
+    str_replace_all("^_", "") %>%
+    str_replace_all("_$", "")
+  target_colnames <- paste0("Pathway_Score_", cleaned_pathway_names)  
+  cat("col-top5：\n", head(target_colnames, 5), "\n")
+  
+  signature_list <- lapply(1:nrow(signature_df), function(i) {
+    genes <- signature_df$Genes[i] %>%
+      str_replace_all("\\s+", "") %>%
+      str_split(",", simplify = TRUE) %>%
+      as.vector() %>%
+      .[. != ""]
+    return(genes)
+  })
+  
+  old_pathway_cols <- grep("^Pathway_Score_", colnames(scobj@meta.data), value = TRUE)
+  if (length(old_pathway_cols) > 0) {
+    scobj@meta.data <- scobj@meta.data[, !colnames(scobj@meta.data) %in% old_pathway_cols, drop = FALSE]
+    cat("\ndelete", length(old_pathway_cols), "Pathway_Score \n")
+  } else {
+    cat("\no Pathway_Score\n")
+  }
+  
+  scobj <- AddModuleScore(
+    object = scobj,
+    features = signature_list,
+    name = "Temp_Score_",  
+    assay = "RNA",
+    slot = "data",
+    seed.use = 1234
+  )
+  
+  temp_cols <- grep("^Temp_Score_", colnames(scobj@meta.data), value = TRUE)
+  temp_cols <- temp_cols[order(as.integer(str_extract(temp_cols, "\\d+")))]
+  
+  scobj@meta.data[, temp_cols] <- scobj@meta.data[, temp_cols, drop = FALSE]
+  colnames(scobj@meta.data)[colnames(scobj@meta.data) %in% temp_cols] <- target_colnames
+ 
+  pathway_cols <- grep("^Pathway_Score", colnames(scobj@meta.data), value = TRUE)
+  pathway_sample_meta <- scobj@meta.data[, c(pathway_cols, "celltype"), drop = FALSE]
+  
+  ave <- pathway_sample_meta %>%
+    group_by(celltype) %>%
+    summarise(across(all_of(pathway_cols), mean), .groups = "drop") %>%
+    column_to_rownames(var = "celltype")
+  
+  data <- t(scale(t(ave)))
+  font2 <- 8
+  data_transposed <- t(data)
+  col2_extend <- c("darkblue", "#1F78B4","lightblue", "white", "#FDE725FF",  "#FFB372FF", "red")
+  col_100_weighted <- colorRampPalette(col2_extend)(100)
+  
+  p <- pheatmap(data_transposed,
+                fontsize = font2,
+                cellwidth = font2 + 2,
+                cellheight = font2 + 2,
+                cluster_cols = T,
+                cluster_rows = T,
+                main = "scale_t",
+                color = col_100_weighted);p
+  }
