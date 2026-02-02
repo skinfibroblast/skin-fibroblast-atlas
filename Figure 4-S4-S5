@@ -1,0 +1,744 @@
+library(Seurat)
+library(ggplot2)
+library(cowplot)
+library(ggpubr)
+library(patchwork)
+library(glue)
+library(tidyverse)
+library(ggh4x)
+library(ggfun)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(dplyr)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(STdeconvolve)
+library(png)
+library(ComplexHeatmap)
+library(circlize)
+library(scater)
+library(ggforce)
+library(reshape2)
+library(spacexr)
+library(msigdbr)
+library(org.Mm.eg.db)
+library(wesanderson)
+library(grid)
+library(tidyr)
+library(rstatix)
+library(decoupleR)
+library(tibble)
+library(plotly)
+library(htmlwidgets)
+library(progeny)
+library(viridis)
+library(SeuratData)
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+
+#Figure 4A
+{
+  top_hvg <- c("PI16", "CD55")
+  a <- 0.2
+  {
+    cell_types <- c("HS") 
+    output_dir <- "Figure4"  
+    
+    if (!require("MASS", character.only = TRUE)) {
+      install.packages("MASS", dependencies = TRUE)
+      library(MASS, character.only = TRUE)
+    }
+    if (!require("ggplot2", character.only = TRUE)) {
+      install.packages("ggplot2", dependencies = TRUE)
+      library(ggplot2, character.only = TRUE)
+    }
+    if (!require("ggExtra", character.only = TRUE)) {
+      install.packages("ggExtra", dependencies = TRUE)
+      library(ggExtra, character.only = TRUE)
+    }
+    
+    {
+      if (!exists("All_FB")) {
+        stop("warning1")
+      }
+      
+      missing_genes <- setdiff(top_hvg, rownames(All_FB))
+      if (length(missing_genes) > 0) {
+        stop("warning2", paste(missing_genes, collapse=", "))
+      }
+      
+      dat_use <- t(GetAssayData(All_FB, slot = "data")[top_hvg, , drop = FALSE]) 
+      dat_use <- as.data.frame(dat_use)
+
+      if (ncol(dat_use) != length(top_hvg)) {
+        stop("warning3")
+      }
+      
+      celltype <- All_FB@meta.data$sample_group  
+      df <- data.frame(celltype = celltype, dat_use)  
+      
+      if (nrow(df) == 0 || ncol(df) < 3) {
+        stop("warning4")
+      }
+
+      expr_cols <- df[, 2:(1+length(top_hvg)), drop = FALSE]  
+      if (nrow(expr_cols) == 0 || ncol(expr_cols) != length(top_hvg)) {
+        stop("warning")
+      }
+      if (!is.data.frame(expr_cols)) {
+        expr_cols <- as.data.frame(expr_cols)
+      }
+      
+      calculate_percentile <- function(column) {
+        non_zero_values <- column[column != 0]
+        if (length(non_zero_values) == 0) {
+          warning("warning")
+          return(0)
+        }
+        return(quantile(non_zero_values, probs = a, na.rm = TRUE))
+      }
+      quantile_values <- apply(expr_cols, 2, calculate_percentile)
+      
+      conditions <- lapply(1:length(top_hvg), function(i) {
+        df[, top_hvg[i]] > quantile_values[i]
+      })
+      df$Group <- ifelse(Reduce("&", conditions), "positive", "negative")
+      
+      if (!dir.exists(output_dir)) {
+        dir.create(output_dir, recursive = TRUE)
+        cat("cell", output_dir, "\n")
+      }
+      
+      for (cell_type in cell_types) {
+        cat("\ncelltype：", cell_type, "\n")
+        
+        df1 <- subset(df, celltype == cell_type)
+        if (nrow(df1) == 0) {
+          warning("no celltype")
+          next
+        }
+        cat("sample count:", nrow(df1), "\n")
+        
+        density_conditions <- lapply(top_hvg, function(gene) {
+          df1[[gene]] > 0
+        })
+        density_data <- subset(df1, Reduce("&", density_conditions))
+        cat("  no 0：", nrow(density_data), "\n")
+        
+        has_density <- FALSE
+        if (nrow(density_data) >= 5) {  #5 sample
+          var_check <- all(sapply(top_hvg, function(gene) {
+            sd(density_data[[gene]], na.rm = TRUE) > 1e-6
+          }))
+          
+          if (var_check) {
+            bandwidths <- sapply(top_hvg, function(gene) {
+              bw <- bandwidth.nrd(density_data[[gene]]) * 1.2
+              max(bw, 0.1) 
+            })
+            
+            if (length(top_hvg) == 2) {
+              dens <- MASS::kde2d(
+                x = density_data[[top_hvg[1]]],
+                y = density_data[[top_hvg[2]]],
+                h = bandwidths,
+                n = 200  
+              )
+              dens_df <- expand.grid(x = dens$x, y = dens$y)
+              dens_df$z <- as.vector(dens$z)
+              has_density <- TRUE
+            } else {
+              warning("WARNING1")
+            }
+          } else {
+            warning("WARNING2")
+          }
+        } else {
+          warning("WARNING3")
+        }
+        x_max <- max(df1[[top_hvg[1]]], na.rm = TRUE) + 1
+        y_max <- if (length(top_hvg) >= 2) max(df1[[top_hvg[2]]], na.rm = TRUE) + 1 else 0
+        gene_x <- top_hvg[1]
+        gene_y <- if (length(top_hvg) >= 2) top_hvg[2] else ""
+        
+        uniform_gradient <- colorRampPalette(c("white","#FFE4B5","#F0E68C","#FFA07A","#FF4500","red"))
+        colors <- uniform_gradient(20)
+        
+        p <- ggplot(df1, aes_string(x = gene_x, y = gene_y))
+        
+        if (has_density && length(top_hvg) == 2) {
+          p <- p + 
+            geom_raster(
+              data = dens_df, 
+              aes(x = x, y = y, fill = z),
+              alpha = 0.8  
+            ) +
+            scale_fill_gradientn(
+              colours = colors,
+              name = "Density"
+            )
+          
+          p <- p +
+            geom_contour(
+              data = dens_df, 
+              aes(x = x, y = y, z = z),
+              bins = 8,          
+              color = "black",  
+              size = 0.6,       
+              alpha = 0.8     
+            )
+        }
+        
+        p <- p +
+          geom_point(
+            aes(color = Group),
+            size = 1.2,    
+            alpha = 0.6    
+          ) +
+          scale_color_manual(
+            values = c("grey50", "blue")  
+          ) +
+          scale_x_continuous(limits = c(0, x_max)) +
+          scale_y_continuous(limits = c(0, y_max)) +
+          guides(fill = "none", color = "none") 
+        
+        p2 <- p +
+          theme(
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+            axis.title = element_text(size = 35),
+            axis.text = element_text(size = 25, colour = "black", angle = 270, vjust = 0.5),
+            axis.ticks = element_blank(),
+            panel.background = element_rect(fill = "white"),
+            plot.background = element_rect(fill = "white")
+          ) +
+          geom_vline(xintercept = quantile_values[1], linetype = "dashed", color = "black") +
+          geom_hline(yintercept = if (length(top_hvg) >= 2) quantile_values[2] else 0, 
+                     linetype = "dashed", color = "black")
+        
+        if (length(top_hvg) == 2) {
+          total_cells <- nrow(df1)
+          q1 <- sum(df1[[gene_x]] > quantile_values[1] & df1[[gene_y]] > quantile_values[2]) / total_cells
+          q2 <- sum(df1[[gene_x]] < quantile_values[1] & df1[[gene_y]] > quantile_values[2]) / total_cells
+          q3 <- sum(df1[[gene_x]] < quantile_values[1] & df1[[gene_y]] < quantile_values[2]) / total_cells
+          q4 <- sum(df1[[gene_x]] > quantile_values[1] & df1[[gene_y]] < quantile_values[2]) / total_cells
+          
+          label_pos <- 1.2
+          p2 <- p2 +
+            annotate("text", x = label_pos, y = y_max - label_pos/5,
+                     label = paste0(round(q2 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = x_max - label_pos, y = y_max - label_pos/5,
+                     label = paste0(round(q1 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = x_max - label_pos, y = 0 + label_pos/5,
+                     label = paste0(round(q4 * 100, 2), "%"), size = 12, color = "black") +
+            annotate("text", x = label_pos, y = 0 + label_pos/5,
+                     label = paste0(round(q3 * 100, 2), "%"), size = 12, color = "black")
+        }
+        
+        a2 <- ggExtra::ggMarginal(
+          p2,
+          type = "density",
+          groupFill = TRUE, 
+          fill = c("grey", "#EE5858"),  
+          alpha = 0.5,
+          colour = NA  
+        )
+        file_prefix <- paste0(output_dir, "/", cell_type, "-", paste(top_hvg, collapse = "-"))
+        ggsave(
+          filename = paste0(file_prefix, ".pdf"),
+          plot = a2,
+          width = 7,
+          height = 7,
+          device = "pdf"
+        )
+        ggsave(
+          filename = paste0(file_prefix, ".svg"),
+          plot = a2,
+          width = 7,
+          height = 7,
+          device = "svg"
+        )
+        cat("Figures have been saved to:", file_prefix, "\n")
+      }
+      cat("\nComplete\n")
+    }
+  }
+}
+
+#Figure 4D
+{
+  GO_top10=read.csv('kegg2-pi16.csv')
+  head(GO_top10)
+  plot_df <- GO_top10 %>%
+    dplyr::mutate(ONTOLOGY = factor(ONTOLOGY, levels = rev(c("BP", "CC", "MF","KEGG")), ordered = T)) %>%
+    dplyr::arrange(ONTOLOGY, -log10(p.adjust)) %>%
+    dplyr::mutate(Description = str_remove(Description, pattern = ",.*")) %>%
+    dplyr::mutate(Description = factor(Description, levels = Description, ordered = T))
+  plot <- plot_df %>%
+    ggplot() + 
+    geom_bar(aes(x = -log10(p.adjust), y = interaction(Description, ONTOLOGY), fill = ONTOLOGY), stat = "identity") + 
+    geom_text(aes(x = 0.1, y = interaction(Description, ONTOLOGY), label = Description), hjust = "left", color = "#000000") + 
+    geom_point(aes(x = 3.5, y = interaction(Description, ONTOLOGY), size = Count, fill = ONTOLOGY), shape = 21) + 
+    geom_text(aes(x = 3.5, y = interaction(Description, ONTOLOGY), label = Count)) + 
+    scale_x_continuous(expand = expansion(mult = c(0, 0.2))) + 
+    scale_fill_manual(values = c("#74c476", "#41b6c4", "#f46d43", "#9e9ac8")) + 
+    scale_size(range = c(5, 8.5),
+               guide = guide_legend(override.aes = list(fill = "#000000"))) + 
+    guides(y = "axis_nested",
+           fill = guide_legend(reverse = T)) +
+    labs(x = "-log10(p.adjust)", y = "Description") + 
+    ggtitle(label = "GO and KEGG Enrichment") + 
+    theme_bw() + 
+    theme(
+      ggh4x.axis.nestline.y = element_line(size = 3, color = c("#74c476", "#41b6c4", "#f46d43", "#9e9ac8")),
+      ggh4x.axis.nesttext.y = element_text(colour = c("#74c476", "#41b6c4", "#f46d43", "#9e9ac8")),
+      legend.background = element_roundrect(color = "#969696"),
+      panel.border = element_rect(linewidth = 1),
+      plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm"),
+      axis.text = element_text(color = "#000000", size = 14),
+      axis.text.y = element_text(color = rep(c("#41ae76", "#225ea8", "#fc4e2a", "#88419d"), each = 10)),
+      axis.text.y.left = element_blank(),
+      axis.ticks.length.y.left = unit(10, "pt"),
+      axis.ticks.y.left = element_line(color = NA),
+      axis.title = element_text(color = "#000000", size = 15),
+      plot.title = element_text(color = "#000000", size = 20, hjust = 0.5)
+    ) 
+  
+  plot
+  ggsave("Figure4/PI16-enrichment.svg", plot, width=6 ,height=8.5)
+}
+
+#Figure 4F,4H
+{
+  library(remotes)
+  library(devtools)
+  library(dplyr)
+  library(Seurat)
+  library(scTenifoldKnk)
+  library(ggplot2)
+  library(ggrepel)
+  scRNA_K <- FindVariableFeatures(All_FB, 
+                                  selection.method = "vst",  
+                                  nfeatures = 3000,
+                                  assay = "RNA")  
+  
+  variable_genes <- VariableFeatures(scRNA_K)
+  countMatrix <- GetAssayData(scRNA_K, assay = "RNA", slot = "counts")
+  countMatrix <- countMatrix[variable_genes, ]
+  mt_genes <- grep("^MT-", rownames(countMatrix), ignore.case = TRUE, value = TRUE)
+  print(paste("found", length(mt_genes), "MT genes"))
+  
+  if(length(mt_genes) == 0){
+    warning("no MT")
+    qc <- FALSE
+  } else {
+    qc <- TRUE
+  }
+  
+  {
+    
+    print("QC")
+    lib_size <- colSums(countMatrix)
+    print(paste("min library:", min(lib_size)))
+    print(paste("max library:", max(lib_size)))
+    print(paste("average library:", mean(lib_size)))
+    
+    keep_cells_lib <- lib_size >= 2000
+    print(paste("cell counts ≥2000:", sum(keep_cells_lib)))
+    
+    countMatrix_filtered <- countMatrix[, keep_cells_lib]
+  }
+  
+  result <- scTenifoldKnk(countMatrix = countMatrix_filtered,
+                          gKO ='PI16',
+                          qc =qc,
+                          qc_mtThreshold =0.2,
+                          qc_minLSize =2000,
+                          nc_nNet =20,
+                          nc_nCells =1000,
+                          nc_nComp =3,
+                          nCores = 8
+  )
+
+  top_genes <- head(result$diffRegulation[order(-result$diffRegulation$FC), ], 5000)
+  
+  top_genes<-top_genes[3:40,]
+  ggplot(top_genes, aes(x=reorder(gene, FC), y=FC)) +
+    geom_bar(stat='identity', fill='steelblue') +
+    coord_flip() +
+    labs(title="Top 20 Differentially Regulated Genes",
+         x="Gene", y="FC") +
+    theme_minimal()
+  df <- result$diffRegulation
+  df<-df[3:2000,]
+  df$log_pval <- -log10(df$p.adj)
+  label_genes <- subset(df, abs(Z) >1& p.adj <0.01)
+  A<-ggplot(df, aes(x=Z, y=log_pval)) +
+    geom_point(alpha=0.5) +
+    geom_hline(yintercept=-log10(0.05), linetype="dashed", color="red") +
+    geom_vline(xintercept=c(1), linetype="dashed", color="blue") +
+    geom_text_repel(data=label_genes, aes(label=gene),
+                    size=3, max.overlaps=50) +
+    labs(title="Z vs -log10(p-value)",
+         x="Z-score", y="-log10(p-value)") +
+    theme_classic()
+  ggsave("Figure4/PI16_knockdown.svg", A, width=3 ,height=5)
+  
+  #Figure 4I
+  library(Seurat)
+  library(pheatmap)
+  library(dplyr)
+  core_genes <- c("CD55", "PI16", "CD248", "KLF4") 
+  other_genes <- c("CFD", "ASPN", "HTRA1", "EDIL3", "MDK", "GXYLT2", "CTHRC1",
+                   "COL5A1", "ZFP36L2", "NR4A1", "COL5A2", "NR4A2", "MFAP2",
+                   "GALNT5", "ADAM12", "OGN", "NREP", "CHPF", "CNTN1", "ZFP36",
+                   "TSPAN13", "MAFF", "POSTN", "SPON2", "PLPP3", "HMCN1",
+                   "COL12A1", "GOLM1", "FN1", "FGL2", "SFRP2", "BGN", "COL8A1",
+                   "LRRC15", "IRF1", "CDKN1A", "CXCL14", "MMP23B", "CEBPD",
+                   "PLPP4", "SDC1", "SEPTIN11", "ZNF469", "KDM6B", "TENM3",
+                   "NTRK2", "LGR4", "GEM", "ZFP36L1", "ABCA8", "NAMPT", "NRG1",
+                   "ATF3", "SOD2", "GJA1", "CHD1", "AK1", "CEBPB", "METRN",
+                   "CLEC11A", "COL11A1")
+  all_genes <- c(core_genes, other_genes) 
+  expr_matrix <- as.matrix(All_FB@assays$RNA@data)
+  
+  exist_genes <- intersect(all_genes, rownames(expr_matrix))
+  if (length(exist_genes) < length(all_genes)) {
+    missing_genes <- setdiff(all_genes, exist_genes)
+    message("warning", paste(missing_genes, collapse = ", "))
+  }
+  
+  core_genes_exist <- intersect(core_genes, exist_genes)
+  other_genes_exist <- intersect(other_genes, exist_genes)
+  
+  target_expr <- expr_matrix[exist_genes, ]
+  cor_matrix <- matrix(NA, 
+                       nrow = length(other_genes_exist), 
+                       ncol = length(core_genes_exist),
+                       dimnames = list(other_genes_exist, core_genes_exist))
+  
+  for (gene in other_genes_exist) {
+    for (core_gene in core_genes_exist) {
+      cor_val <- cor(target_expr[gene, ], target_expr[core_gene, ], 
+                     method = "pearson", use = "pairwise.complete.obs")
+      cor_matrix[gene, core_gene] <- cor_val
+    }
+  }
+  
+  print(head(cor_matrix))
+  
+  A<-pheatmap(
+    mat = cor_matrix,
+    main = "Correlation between target genes and core Fb genes", 
+    color = colorRampPalette(c("#2166ac", "white", "#b2182b"))(100), 
+    border_color = "black",  
+    cellwidth = 30, cellheight = 8,  
+    show_rownames = TRUE, show_colnames = TRUE, 
+    fontsize_row = 6, fontsize_col = 10, 
+    treeheight_row = 20, treeheight_col = 0,  
+    cluster_rows = TRUE, cluster_cols = T, 
+    display_numbers = FALSE,  
+    number_format = "%.2f", 
+    annotation_legend = TRUE,
+    legend_labels = c("Negative", "0", "Positive")  
+  );A
+  ggsave("Figure4/knockdown_heatmap.svg", A, width=4 ,height=7)
+  
+}
+
+#Figure S4A
+{
+  All_FB= All_FB[,All_FB@meta.data$sample_group %in% c("S","NS","HS","K")]
+  DEG <- read.csv("scvi_celltype-DEG.csv")
+  
+  gene_sets <- DEG %>% 
+    filter(avg_log2FC > 0.25) %>% 
+    group_by(cluster) %>% 
+    slice_head(n = 50) %>%
+    summarise(genes = list(gene)) %>% 
+    deframe()
+
+  All_FB <- AddModuleScore(
+    object = All_FB,
+    features = list(Score = gene_sets$`PI16+ Fb`), 
+    name = "PI16Fb",                        
+    ctrl = 100                                 
+  )
+
+  scores <- All_FB@meta.data[, c("PI16Fb1","sample_group")]
+
+  PI16_expression <- GetAssayData(All_FB, assay = "RNA", slot = "data")["PI16", ]
+
+  combined_data <- data.frame(scores, PI16_expression = as.numeric(PI16_expression))
+  combined_data <- combined_data[combined_data$PI16_expression != 0, ]
+  a <- ggplot(combined_data , aes(sample_group, PI16Fb1, color = sample_group, fill = sample_group)) +
+    geom_boxplot(width = 0.7, alpha = 0.2, outlier.fill = NA, outlier.color = NA) +  
+    
+    scale_color_manual(values = col) +
+    scale_fill_manual(values = col) +
+    theme_bw() +
+    labs(y = "Cell Score", x = "", size = 40) +
+    stat_compare_means(aes(label = after_stat(p.adjust(..p..) < 0.05)),
+                       comparisons = list(),
+                       method = "t.test", bracket.size = 0.001, step.increase = 1,
+                       size = 4, label = "p.signif", vjust = -0.4) +
+    
+    scale_y_continuous(limits = c(-0.6, 3), expand = c(0, 0)) +
+    
+    theme(axis.text = element_text(color = "black", size = 11),
+          axis.line = element_blank(),
+          axis.text.x = element_text(size = 11, angle = 0, vjust = 0.5),
+          axis.text.y = element_text(size = 15),
+          axis.title.y = element_text(size = 11),
+          panel.spacing = unit(2, "lines"), 
+          strip.text.x = element_text(size = 11),
+          axis.line.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          legend.position = "none",
+          panel.grid.major.x = element_blank(),  
+          panel.grid.minor.x = element_blank()) +
+    
+    scale_x_discrete(limits = c("S", "NS", "HS", "K"), 
+                     expand = expansion(add = 0.7))  
+
+  print(a)
+  ggsave("Figure4/PI16-score.svg",a,wi=2,he=2)
+}
+
+#Figure S4F
+{
+  library(glue)
+  genes <- c( "VEGFA","CD55") # 这里可以根据需要修改细胞名称
+  
+  {
+    ave <-  AverageExpression(PI16,assays = "RNA",features=c(genes[1],genes[2]),
+                              group.by = "orig.ident",verbose = T)$RNA
+    data <- scale(ave)
+    font2 <- 8
+    
+    data <- t(scale(t(ave)))
+    font2 <- 8
+    data_transposed <- t(data)    
+    
+    data_transposed <- t(ave)
+    
+    data_transposed<-as.data.frame(data_transposed)
+    
+    data_transposed$Group<-row.names(data_transposed)
+    data_transposed <- data_transposed %>%
+      rownames_to_column(var = "SampleID") %>%  
+      mutate(Group = case_when(
+        grepl("^K\\d+", SampleID) ~ "Keloid",
+        grepl("^HS\\d+", SampleID) ~ "Hypertrophic scar",
+        grepl("^NS\\d+", SampleID) ~ "Normal Scar",
+        grepl("^S\\d+", SampleID) ~ "Normal Skin",
+        grepl("^AWD0\\d+", SampleID) ~ "Normal Skin",
+        grepl("^AWD1\\d+", SampleID) ~ "Wound day1",
+        grepl("^AWD7\\d+", SampleID) ~ "Wound day7",
+        grepl("^AWD30\\d+", SampleID) ~ "Wound day30",
+        grepl("^diac\\d+", SampleID) ~ "Chronic Wound",
+        TRUE ~ as.character(NA) 
+      )) %>%
+      column_to_rownames(var = "SampleID")  
+    table(data_transposed$Group)
+    cola<-"red"
+      {
+        data_transposed<-as.data.frame(data_transposed)
+        
+        
+        data_clean <- na.omit(data_transposed[, genes])
+        
+        cor_test <- cor.test(data_clean[, 1], data_clean[, 2])
+        cor_coef <- cor_test$estimate
+        p_value <- cor_test$p.value
+        
+        cor_label <- paste("r =", format(round(cor_coef, 3), nsmall = 3))
+        p_label <- ifelse(p_value < 0.001, "p < 0.001", paste("p =", format(round(p_value, 3), nsmall = 3)))
+        
+        a <- ggplot(data_transposed, aes(x = .data[[genes[1]]], y = .data[[genes[2]]])) +
+          geom_point(aes(color = Group), shape = 21, fill = NA, alpha = 1, size = 3) +
+          
+          geom_smooth(method = "lm", se = TRUE, color = "black", linetype = "dashed", size = 0.2) +
+          geom_hline(yintercept = median(data_transposed[[genes[2]]]), linetype = "dashed", color = "gray50") +
+          geom_vline(xintercept = median(data_transposed[[genes[1]]]), linetype = "dashed", color = "gray50") +
+          annotate("text", 
+                   x = min(data_transposed[[genes[1]]]), 
+                   y = max(data_transposed[[genes[2]]]),
+                   label = paste(cor_label, p_label, sep = "\n"),
+                   hjust = 0, vjust = 1.2, size = 6, color = "black", fontface = "bold"
+          ) +
+          labs(
+            x = paste(genes[1], "average expression"),
+            y = paste(genes[2], "average expression"),
+            color = "Sample Group"  
+          ) +
+          
+          scale_color_manual(values = col) +
+          theme_minimal() +
+          theme(
+            axis.title = element_text(size = 20, color = "black"),
+            axis.text = element_text(size = 22, color = "black"),
+            panel.grid = element_blank(),  
+            panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8),
+            legend.position = "none",  
+            legend.title = element_text(face = "bold", size = 15),
+            legend.text = element_text(size = 14)
+          )
+        print(a)
+      }
+    {
+      filename <- glue("Figure4/{genes[1]}-{genes[2]}.svg")
+      ggsave(
+        filename = filename,
+        plot = a,
+        width = 6,
+        height = 3,
+        device = "svg",
+        bg = "white"
+      )
+    }
+    filename <- paste0("Figure4/", paste(genes, collapse = "-"), ".svg")
+    ggsave(filename, a, width = 5, height = 4.2)
+  }
+  
+  
+}
+
+#Figure S5D-J
+{
+  scRNA_harmony<-scRNA_FB_AI
+  scRNA_harmony@meta.data$celltype = "NA"
+  for(i in 1:nrow(celltype)){
+    scRNA_harmony@meta.data[which(scRNA_harmony@meta.data$seurat_clusters == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+  table(scRNA_harmony$celltype)
+  col2 <- c(  "#CD5C5C",  "#FFC0CB", "#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE","#FF4500", "#FF6347", "#FFA07A")
+  col2 <- colorRampPalette(col2)(13)
+  col3 <- c("#00CED1", "#FFA07A")
+  col3 <- colorRampPalette(col3)(21)
+  #Figure S5D
+  p1 = DimPlot(scRNA_harmony, group.by="orig.ident", 
+               pt.size = 0.1, label.size=5, label = T,label.box =T,
+               reduction='umap',cols = col2,raster=FALSE, raster.dpi = c(1, 1));p1
+  #Figure S5E
+  p1 = DimPlot(scRNA_harmony, group.by="sample_group3", 
+               pt.size = 0.1, label.size=5, label = T,label.box =T,
+               reduction='umap',cols = col2,raster=FALSE, raster.dpi = c(1, 1));p1
+  
+  #Figure S5F
+  p1 = DimPlot(scRNA_harmony, group.by="celltype", 
+               pt.size = 0.1, label.size=5, label = T,label.box =T,
+               reduction='umap',cols = col2,raster=FALSE, raster.dpi = c(1, 1));p1
+                       
+  ggsave("Figure4/regressive scar.svg",p1, width = 7, height =5)
+                       
+  #Figure S5G
+  p000 <- Plot_Density_Custom(scRNA_harmony, "PI16", custom_palette = col5) +
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          panel.border = element_blank(),
+          axis.title = element_blank(),  
+          axis.text.x  = element_blank(), 
+          axis.text.y  = element_blank(),
+          axis.ticks = element_blank(),
+          panel.background = element_rect(fill = 'white'), 
+          plot.background = element_rect(fill = "white"), 
+          legend.text = element_text(size = 0), 
+          axis.line = element_blank(), 
+          axis.line.x = element_blank(), 
+          axis.line.y = element_blank(),
+          legend.position = "none");p000 
+  
+  #Figrue S5H
+  p <- DotPlot(scRNA_harmony, group.by = "celltype",
+               features = c("PI16"), 
+               dot.scale = 10);p
+  ggsave("Figure4/Dotplot.svg",p, width = 4.5, height =5.5)
+  
+  #Figure S5I
+  Idents(scRNA_harmony)<-scRNA_harmony$celltype
+  Cellratio <- prop.table(table(Idents(scRNA_harmony), scRNA_harmony$orig.ident), margin = 2)
+  Cellratio <- as.data.frame(Cellratio)
+  library(dplyr)
+  library(ggplot2)
+  library(ggforce) 
+  library(ggpubr)
+  Cellratio <- Cellratio %>%
+    mutate(Group = case_when(
+      grepl("^AC\\d+", Var2) ~ "K",
+      grepl("^AP\\d+", Var2) ~ "K",
+      grepl("^IC\\d+", Var2) ~ "K",
+      grepl("^IP\\d+", Var2) ~ "K",
+      grepl("^MS\\d+", Var2) ~ "MS",
+      grepl("^NS\\d+", Var2) ~ "MS",
+      TRUE ~ as.character(NA)
+    ))
+
+  specific_values <- c("PI16+ Fb")
+  table(All_FB$celltype)
+  
+  AA1 <- Cellratio[Cellratio$Var1 %in% specific_values, ]
+  a <- ggplot(AA1 , aes(Group, Freq, color = Group, fill = Group)) +
+    geom_boxplot(width = 0.8, alpha = 0.2, outlier.fill = NA, outlier.color = NA) +  
+    geom_jitter(width = 0.2, alpha = 0.5,color = "black") + 
+    scale_color_manual(values = col) +
+    scale_fill_manual(values = col) +
+    theme_bw() +
+    labs(y = "Cell ratio", x = "", size = 40) +
+    stat_compare_means(aes(label = after_stat(p.adjust(..p..) < 0.05)),
+                       comparisons = list(),
+                       method = "t.test", bracket.size = 0.001, step.increase = 1,
+                       size = 4, label = "p.signif", vjust = -0.4) +
+    scale_y_continuous(limits = c(0,0.1),expand = c(0.05, 0.05)) +
+    facet_wrap(~Var1, nrow = 4, ncol = 4, scales = "fixed") +
+    theme(axis.text = element_text(color = "black", size = 11),
+          axis.line = element_blank(),
+          axis.text.x = element_text(size = 11, angle = 35, vjust = 0.5),
+          axis.text.y = element_text(size = 15),
+          axis.title.y = element_text(size = 11),
+          panel.spacing = unit(2, "lines"),
+          strip.text.x = element_text(size = 11),
+          axis.line.y = element_blank(), 
+          axis.ticks.y = element_blank(),  
+          legend.position = "none")
+  print(a)
+  
+  ggsave("Figure4/PI16-cellratio.SVg",a,wi=3.752,he=3)
+  
+  table(scRNA_harmony$sample_group3)
+  count_table<-table(scRNA_harmony@meta.data[,"celltype"],scRNA_harmony@meta.data[,"sample_group3"])
+  Cellratio <- as.data.frame(count_table)
+  p3<-ggplot(Cellratio, aes(x=Var2, y=Freq, fill=Var1)) +
+    geom_bar(position="fill", stat="identity") +
+    theme_bw() +
+    coord_flip() +
+    ylab("Fraction of cells in each sample") +
+    xlab("Samples") +
+    scale_fill_manual(values = col) + 
+    theme(
+      axis.title.x = element_text(size = 22, face = "bold"),
+      axis.text.x = element_text(size = 22, face = "bold", angle = 0, hjust = 0.5),
+      axis.text.y = element_text(size = 20, face = "bold"),
+      axis.title.y = element_text(size = 22, face = "bold"),
+      legend.title = element_text(size = 22, face = "bold"),
+      legend.text = element_text(size = 22, face = "bold"),
+      legend.position = "bottom",
+      legend.spacing.x = unit(5, "cm"), 
+      legend.spacing.y = unit(5, "cm"), 
+      legend.box.just = "top" 
+    );p3
+
+  ggsave("Figure4/cell ratio.svg", p3, width=4.5 ,height=5)
