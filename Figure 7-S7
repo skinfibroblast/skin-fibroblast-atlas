@@ -1,0 +1,346 @@
+library(Seurat)
+library(SeuratData)
+library(SingleR)
+library(CellChat)
+library(scRNAtoolVis)
+library(scCustomize)
+library(STdeconvolve)
+library(spacexr)
+library(Nebulosa)
+library(scater)
+library(harmony)
+
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(tidyverse)
+library(purrr)
+library(reshape2)
+library(Matrix)
+
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(ggridges)
+library(ComplexHeatmap)
+library(circlize)
+library(pheatmap)
+library(ggrepel)
+library(ggforce)
+library(ggpubr)
+library(ggh4x)
+library(ggfun)
+library(ggrastr)
+library(plotly)
+library(htmlwidgets)
+library(grid)
+
+library(RColorBrewer)
+library(viridis)
+library(paletteer)
+library(scales)
+library(wesanderson)
+
+library(clusterProfiler)
+library(org.Hs.eg.db)  
+library(org.Mm.eg.db) 
+library(msigdbr)
+library(progeny)
+library(decoupleR)
+
+library(rstatix)
+library(devtools)
+library(reticulate)
+library(png)
+library(scales)
+load("mus_scRNAseq_sample.Rdata")
+
+#Figure 7B-D
+{
+  
+  #7B,7D
+  col<-c("#FB9A99","#C73E3A","#FDBF6F","#A6CEE3","#1F78B4","#B3D88B", "#64B482",
+         "#FF7F00","#FFFF99",'#bf033b',"darkred","yellow","red")
+  col <- colorRampPalette(col)(14)
+
+  p1<-DimPlot(scRNA_mus_all,reduction="umap",group.by="celltype",raster=FALSE,cols = col);p1
+  p2<-DimPlot(scRNA_mus_fb,reduction="umap",group.by="celltype",raster=FALSE,cols = col);p2
+  
+  ggsave("Figure7\\UMAP.svg",p1,width=6,height=4)
+  ggsave("Figure7\\UMAP_fb.svg",p2,width=6,height=4)
+  
+  #7C
+  col<-c("#FB9A99","#C73E3A","#FDBF6F","#A6CEE3","#1F78B4","#B3D88B", "#64B482",
+         "#FFA64F","#FFFF99",'#bf033b',"#8E1414","#FEFF95")
+  p1 <- RidgePlot(scRNA_mus_fb, features = "Col1a2", group.by = "celltype",
+                  fill.by = 'feature', cols = col) +
+    scale_fill_manual(values = alpha(col, 0.8)) +
+    theme(
+      legend.position = "none",
+      axis.text.y = element_text(size=35),
+      axis.text.x = element_text(size=35),
+      axis.title.y = element_blank(), 
+      axis.title.x = element_blank(), 
+      text = element_text(size=35),
+      panel.grid.major = element_blank(),  
+      panel.grid.minor = element_blank(), 
+      panel.background = element_blank(),
+      panel.border = element_rect(fill = NA, color = "black", size = 0.5))
+  print(p1)
+  
+  ggsave("Pdgfra-fb-Ridge Plot.svg", plot = p1, width = 6, height =10)
+
+  Idents(scRNA_mus_fb)<-scRNA_mus_fb$celltype
+  col_reversed <- rev(col)
+  violin_after_scm <- VlnPlot(scRNA_mus_fb,
+                              features=c("Pdgfra"), 
+                              pt.size = 0,
+                              ncol = 1,cols = col_reversed);violin_after_scm
+  ggsave("Col1a2-fb-violin Plot.svg", plot = violin_after_scm, width = 6, height =3)
+  
+}
+
+##Figure 7E,S7A
+{
+  cluster_markers_samplegroup2=read.csv('mus_all_marker.csv',row.names = 1)
+  cell_order <- c("Endothelial_cell", "Epidermal_cell", "Fibroblast", "Lymphocyte", "Lymphoendothelial_cell", "Macrophage", "Melanocyte", "Neutrophil", "Pericyte", "Schwann_Cell", "Stromal_cell")
+  cluster_markers_samplegroup2$cluster <- factor(cluster_markers_samplegroup2$cluster,levels = cell_order)
+  sorted_data <- cluster_markers_samplegroup2[order(cluster_markers_samplegroup2$cluster), ]
+  
+  head(sorted_data$cluster, 20) 
+  
+  if (!is.data.frame(cluster_markers_samplegroup2)) {
+    cluster_markers_samplegroup2 <- as.data.frame(cluster_markers_samplegroup2)
+  }
+  
+  gene <- cluster_markers_samplegroup2 %>%
+    select(p_val, avg_log2FC, pct.1, pct.2, p_val_adj, cluster, gene) %>%
+    group_by(cluster) %>%
+    top_n(5, avg_log2FC) %>% 
+    arrange(cluster, desc(avg_log2FC)) %>%  
+    ungroup()
+  
+  marker_sign<-gene$gene
+  ave <-  AverageExpression(scRNAlist,assays = "RNA",features=marker_sign,
+                            group.by = "celltype",verbose = T)$RNA
+  data <- t(scale(t(ave)))
+  font2 <- 8
+  data_transposed <- t(data)
+  col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+  
+  p <- pheatmap(data_transposed,
+                fontsize = font2,
+                cellwidth = font2 + 2,
+                cellheight = font2 + 2,
+                cluster_cols = FALSE,
+                cluster_rows = F,
+                main = "scale_t",
+                color = col2);p 
+  ggsave("Figure7\\markergene.svg",p2,width=6,height=4)
+}
+
+#Figure 7F, S7B
+{
+  count_table<-table(scRNA_mus_fb@meta.data[,"celltype"],scRNA_mus_fb@meta.data[,"orig.ident"])
+  Cellratio <- as.data.frame(count_table)
+  p3<-ggplot(Cellratio, aes(x=Var2, y=Freq, fill=Var1)) +
+    geom_bar(position="fill", stat="identity") +
+    theme_bw() +
+    coord_flip() +
+    ylab("Fraction of cells in each sample") +
+    xlab("Samples") +
+    scale_fill_manual(values = col) + 
+    theme(
+      axis.title.x = element_text(size = 22, face = "bold"),
+      axis.text.x = element_text(size = 20, face = "bold", angle = 0, hjust = 0.5),
+      axis.text.y = element_text(size = 20, face = "bold"),
+      axis.title.y = element_text(size = 22, face = "bold"),
+      legend.title = element_text(size = 22, face = "bold"),
+      legend.text = element_text(size = 22, face = "bold"),
+      legend.position = "bottom",
+      legend.spacing.x = unit(5, "cm"), 
+      legend.spacing.y = unit(5, "cm"), 
+      legend.box.just = "top" 
+    );p3
+}
+
+#Figure 7G
+{
+  marker_gene <- read.csv('scANVI_celltype-DEG.csv', row.names = 1)
+  marker_gene$genes <- sapply(marker_gene$gene, function(x) {
+    paste0(toupper(substr(x, 1, 1)), tolower(substr(x, 2, nchar(x))))
+  })
+  head(marker_gene[, c("gene", "genes")], 10)
+  marker_gene <- subset(marker_gene, cluster %in% c("PI16+ Fb","CCL19+ Fb","TNFAIP6+ Fb","MMP1+ Fb",
+                                                    "LRRC15+ Fb","PLCG2+ Fb","LAMP5+ Fb","COL4A1+ Fb"))
+  marker_gene$genes<-marker_gene$gene
+  head(marker_gene[, c("gene", "genes")]) 
+
+  top50_genes <- marker_gene %>%
+    group_by(cluster) %>%              
+    arrange(desc(avg_log2FC)) %>%      
+    #filter(avg_log2FC > 0.7) %>%
+    slice_head(n = 40) %>%             
+    ungroup()
+
+    gene_list <- top50_genes %>%
+    group_by(cluster) %>%
+    summarise(genes = list(genes)) %>%
+    deframe()
+  
+  gene_list
+  
+  rownames(scRNA_mus_fb@assays$RNA) <- toupper(rownames(scRNA_mus_fb@assays$RNA))
+  
+  head(rownames(scRNA_mus_fb@assays$RNA), 10)
+  scRNA_mus_fb <- AddModuleScore(
+    object = scRNA_mus_fb,
+    features = gene_list,        
+    ctrl = 100,                  
+    name = names(gene_list),     
+    assay = "RNA"               
+  )
+  
+  colnames(scRNA_mus_fb@meta.data)
+  p <- DotPlot(scRNA_mus_fb, group.by = "celltype",
+               features = c(  
+                 "ANGPTL7+ Fb1", "APCDD1+ Fb2", "AQP1+ Fb3", "CCL19+ Fb4", "COCH+ Fb5", "COL4A1+ Fb6", 
+                 "IGFBP2+ Fb7", "IGKC+ Fb8", "KRT+ Fb9", "LAMP5+ Fb10", "LRRC15+ Fb11", "MMP1+ Fb12",
+                 "PI16+ Fb13", "PLCG2+ Fb14", "S100B+ Fb15", "TNFAIP6+ Fb16"), 
+               dot.scale = 10) + 
+    RotatedAxis() +
+    scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
+    labs(title = "cluster markers", y = "", x = "");p
+  
+  ggsave(file="hum-rat-score-.svg",p,width =8.5,height = 6) 
+  
+}
+
+#Figure 7H,S7D
+{
+  Idents(scRNA_mus_fb)<-scRNA_mus_fb$celltype
+  Cellratio <- prop.table(table(Idents(scRNA_mus_fb), scRNA_mus_fb$orig.ident), margin = 2)
+  Cellratio <- as.data.frame(Cellratio)
+  Cellratio$Var2 <- factor(Cellratio$Var2, levels = c("W0","W1","W2","W4", "W7"))
+  
+  a <- ggplot(Cellratio, aes(x = Var2, y = Freq, group = Var1, color = Var1)) +
+    stat_summary(fun = mean, geom = "line", size = 1) +
+    stat_summary(fun = mean, geom = "point", size = 2.5) +
+    geom_point(aes(color = Var1), alpha = 0.3, position = position_jitter(width = 0.1)) +
+    scale_color_manual(values = col) +
+    theme_bw() +
+    labs(y = "Cell ratio", x = "", title = "Cell ratio changes over time") +
+    scale_y_continuous(limits = c(0,0.8), expand = c(0.05, 0.05)) +
+    facet_wrap(~Var1, nrow = 5, ncol = 4, scales = "fixed") +
+    theme(
+      axis.text = element_text(color = "black", size = 11),
+      axis.text.x = element_text(size = 15, angle = 0, vjust = 0.5),
+      axis.text.y = element_text(size = 15),
+      axis.title.y = element_text(size = 11),
+      panel.spacing = unit(2, "lines"),
+      strip.text.x = element_text(size = 11),
+      axis.line.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      legend.position = "bottom", 
+      legend.title = element_blank(), 
+      legend.text = element_text(size = 15),
+      plot.title = element_text(size = 14, hjust = 0.5))
+  
+  print(a)
+  ggsave("cellratio.svg",a,wi=10,he=3.5)
+}
+
+
+#Figure S7C,S7E
+{
+  #S7C
+  GO_top10=read.csv('kegg-hum-rat.csv')
+  head(GO_top10)
+
+  plot_df <- GO_top10 %>%
+    dplyr::mutate(ONTOLOGY = factor(ONTOLOGY, levels = rev(c("Human", "Rat")), ordered = T)) %>%
+    dplyr::arrange(ONTOLOGY, -log10(FDR)) %>%
+    dplyr::mutate(Description = str_remove(Description, pattern = ",.*")) %>%
+    dplyr::mutate(Description = factor(Description, levels = Description, ordered = T))
+  
+  plot <- plot_df %>%
+    ggplot() + 
+    geom_bar(aes(x = -log10(FDR), y = interaction(Description, ONTOLOGY), fill = ONTOLOGY), stat = "identity") + 
+    geom_text(aes(x = 0.1, y = interaction(Description, ONTOLOGY), label = Description), hjust = "left", color = "#000000") + 
+    geom_point(aes(x = 3.5, y = interaction(Description, ONTOLOGY), size = Count, fill = ONTOLOGY), shape = 21) + 
+    geom_text(aes(x = 3.5, y = interaction(Description, ONTOLOGY), label = Count)) + 
+    scale_x_continuous(expand = expansion(mult = c(0, 0.2))) + 
+    scale_fill_manual(values = c("#C73E3A", "#41b6c4")) + 
+    scale_size(range = c(5, 8.5),
+               guide = guide_legend(override.aes = list(fill = "#000000"))) + 
+    guides(y = "axis_nested",
+           fill = guide_legend(reverse = T)) +
+    labs(x = "-log10(p.adjust)", y = "Description") + 
+    ggtitle(label = "GO and KEGG Enrichment") + 
+    theme_bw() + 
+    theme(
+      ggh4x.axis.nestline.y = element_line(size = 3, color = c("#C73E3A", "#41b6c4")),
+      ggh4x.axis.nesttext.y = element_text(colour = c("#74c476", "#41b6c4")),
+      legend.background = element_roundrect(color = "#969696"),
+      panel.border = element_rect(linewidth = 1),
+      plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm"),
+      axis.text = element_text(color = "#000000", size = 14),
+      axis.text.y = element_text(color = rep(c("#41ae76", "#225ea8"), each = 10)),
+      axis.text.y.left = element_blank(),
+      axis.ticks.length.y.left = unit(10, "pt"),
+      axis.ticks.y.left = element_line(color = NA),
+      axis.title = element_text(color = "#000000", size = 15),
+      plot.title = element_text(color = "#000000", size = 20, hjust = 0.5)
+    ) 
+  
+  plot
+  ggsave("hum-rat.svg", plot, width=7 ,height=7)
+  
+  
+  #S7E
+  GO_top10=read.csv('kegg-hum-rat2.csv')
+  head(GO_top10)
+  
+  plot_df <- GO_top10 %>%
+    dplyr::mutate(ONTOLOGY = factor(ONTOLOGY, levels = rev(c("MF", "CC","BP","KEGG")), ordered = T)) %>%
+    dplyr::arrange(ONTOLOGY, -log10(p.adjust)) %>%
+    dplyr::mutate(Description = str_remove(Description, pattern = ",.*")) %>%
+    dplyr::mutate(Description = factor(Description, levels = Description, ordered = T))
+  
+  plot <- plot_df %>%
+    ggplot() + 
+    geom_bar(aes(x = -log10(p.adjust), y = interaction(Description, ONTOLOGY), fill = ONTOLOGY), stat = "identity") + 
+    geom_text(aes(x = 0.1, y = interaction(Description, ONTOLOGY), label = Description), hjust = "left", color = "#000000") + 
+    geom_point(aes(x = 3.5, y = interaction(Description, ONTOLOGY), size = Count, fill = ONTOLOGY), shape = 21) + 
+    geom_text(aes(x = 3.5, y = interaction(Description, ONTOLOGY), label = Count)) + 
+    scale_x_continuous(expand = expansion(mult = c(0, 0.2))) + 
+    scale_fill_manual(values = c("#74c476", "#41b6c4", "#f46d43", "#CD5C5C","#9e9ac8")) + 
+    scale_size(range = c(5, 8.5),
+               guide = guide_legend(override.aes = list(fill = "#000000"))) + 
+    guides(y = "axis_nested",
+           fill = guide_legend(reverse = T)) +
+    labs(x = "-log10(p.adjust)", y = "Description") + 
+    ggtitle(label = "GO and KEGG Enrichment") + 
+    theme_bw() + 
+    theme(
+      ggh4x.axis.nestline.y = element_line(size = 3, color = c("#74c476", "#41b6c4", "#f46d43",
+                                                               "#CD5C5C","#9e9ac8")),
+      ggh4x.axis.nesttext.y = element_text(colour = c("#74c476", "#41b6c4", "#f46d43",
+                                                      "#CD5C5C","#9e9ac8")),
+      legend.background = element_roundrect(color = "#969696"),
+      panel.border = element_rect(linewidth = 1),
+      plot.margin = margin(t = 1, r = 1, b = 1, l = 1, unit = "cm"),
+      axis.text = element_text(color = "#000000", size = 14),
+      axis.text.y = element_text(color = rep(c("#41ae76", "#225ea8", "#fc4e2a",
+                                               "#CD5C5C","#88419d"), each = 10)),
+      axis.text.y.left = element_blank(),
+      axis.ticks.length.y.left = unit(10, "pt"),
+      axis.ticks.y.left = element_line(color = NA),
+      axis.title = element_text(color = "#000000", size = 15),
+      plot.title = element_text(color = "#000000", size = 20, hjust = 0.5)
+    ) 
+  
+  plot
+  ggsave("fIGURE7/GO and kegg.svg", plot, width=6 ,height=7)
+  
+}
