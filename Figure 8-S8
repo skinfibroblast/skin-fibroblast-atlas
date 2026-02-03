@@ -1,0 +1,130 @@
+library(pheatmap)
+library(dendextend)
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer) 
+library(ggplot2)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(RColorBrewer)
+library(Nebulosa)
+library(scCustomize)
+library(Seurat)
+library(reticulate)
+library(devtools)
+library(nichenetr)
+library(Seurat)
+library(SeuratObject)
+library(tidyverse)
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B", "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+
+##Figure 8A
+{
+  WideData2<-read.csv("cell_ratio_fb_im.csv",row.names = 1)
+  print(sapply(WideData2, class))
+  cell_correlation <- cor(t(WideData2)) 
+  sample_correlation <- cor(WideData2)
+  palette_length = 500
+  my_color = colorRampPalette(c("#1F78B4", "white","#C73E3A"))(palette_length)
+  a<-pheatmap(
+    cell_correlation,
+    color = my_color,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_rownames = TRUE,
+    show_colnames = TRUE,
+    main = "HEAPMAP",
+    fontsize_row = 12,
+    fontsize_col = 12,
+    scale = "none",
+    border_color = NA,
+    treeheight_row = 20,
+    treeheight_col = 20,
+    display_numbers = FALSE,
+    number_format = "%.2f"
+  );a 
+  
+  ggsave("Figure8/heatmap.svg",a, width = 11, height =11)
+}
+
+
+#Figure 8C
+{
+  load("scRNA_LC_MC_FB_sample.Rdata")
+  score_columns <- grep("_Score1$", colnames(scRNA_LC_MC_FB@meta.data), value = TRUE)
+
+  final.markers <- score_columns
+  final.markers <- final.markers[-1]
+
+  scRNA_LC_MC_FB$model_group <- factor(x = scRNA_LC_MC_FB$model_group, 
+                                       levels = c('M1','M2','M3','M4',"M5","M6"))
+  
+  Idents(scRNA_LC_MC_FB) <- "model_group"
+
+  expr_data <- FetchData(scRNA_LC_MC_FB, vars = final.markers, slot = "data")
+  hclust_genes <- hclust(dist(t(expr_data)))  
+  
+  gene_order <- hclust_genes$order
+  final.markers_ordered <- final.markers[gene_order]
+  
+  p <- DotPlot(scRNA_LC_MC_FB, group.by = "model_group",
+               features = final.markers_ordered, 
+               dot.scale = 10) + 
+    RotatedAxis() +
+    scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
+    labs(title = "cluster markers", y = "", x = "");p
+  
+  ggsave("Figure8/score.svg",p2, width = 12, height =7)
+}
+
+
+#8e - 8i
+{
+  load("cell chat.Rdata")
+  ###8E
+  groupSize <- as.numeric(table(cellchat_M3@idents))
+  cellchat_M3 <- netAnalysis_computeCentrality(cellchat_M3, slot.name = "netP")
+  col_use <-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B", "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+  
+  gg1 <- netAnalysis_signalingRole_scatter(cellchat_M3,dot.size = c(1, 2),color.use = col_use) + 
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 20),
+      axis.title = ggplot2::element_text(size = 20),
+      axis.text = ggplot2::element_text(size = 20),
+      legend.title = ggplot2::element_text(size = 20),
+      legend.text = ggplot2::element_text(size = 20),
+      strip.text = ggplot2::element_text(size = 20)
+    );gg1
+  
+  ##8G
+  groupSize <- as.numeric(table(cellchat_M1@idents))
+  cellchat_M1 <- netAnalysis_computeCentrality(cellchat_M1, slot.name = "netP")
+  gg2 <- netAnalysis_signalingRole_scatter(cellchat_M1,dot.size = c(1, 2),color.use = col_use) + 
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 20),
+      axis.title = ggplot2::element_text(size = 20),
+      axis.text = ggplot2::element_text(size = 20),
+      legend.title = ggplot2::element_text(size = 20),
+      legend.text = ggplot2::element_text(size = 20),
+      strip.text = ggplot2::element_text(size = 20)
+    );gg2
+  #8H
+  a<-netVisual_bubble(cellchat_M3, sources.use =c("TNFAIP6+ Fb") , targets.use = c("CCR7+ MC","HMOX1+ MC","LTB+ MC") ,
+                      remove.isolate = FALSE);a
+  #8I
+  a<-netVisual_bubble(cellchat_M1, sources.use =c("COL4A1+ Fb","MMP1+ Fb") , targets.use = c("CD56+ LC","GZMK+ LC","IL1B+ MC") ,
+                      remove.isolate = FALSE);a
+}
