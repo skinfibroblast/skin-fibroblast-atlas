@@ -1,6 +1,6 @@
 library(Seurat)
 library(SeuratData)
-library(dplyr) 
+library(dplyr)
 library(tibble)
 library(tidyr)
 library(tidyverse)
@@ -49,8 +49,8 @@ library(htmlwidgets)
 
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-load("py_all_fb2.Rdata")
-
+load("All_cell.Rdata")
+load("All_fb.Rdata")
 
 
 #Figure 2A
@@ -74,7 +74,6 @@ load("py_all_fb2.Rdata")
                      cluster_rows = FALSE,
                      main = "scale_t",
                      color = col2);h_type  # apply custom colors
-
   sce <- as.SingleCellExperiment(All_FB)  
   celltype_mean <- aggregateAcrossCells(as(sce, "SingleCellExperiment"),
                                         ids = sce$celltype,
@@ -189,17 +188,12 @@ load("py_all_fb2.Rdata")
       plot.title = element_text(size = 18, hjust = 0.5, family = "Arial")  
     )
   print(a)
-  ggsave("Figure2B.svg", plot = a, width = 10, height =3)
+  ggsave("Figure2\\violin_polt-.svg", plot = a, width = 10, height =3)
   
 }
 
-#Figure 2C
+#Figure 2C, F, G
 {
-  library(dplyr)
-  library(ggplot2)
-  library(ggforce) 
-  library(ggpubr)
-  library(reshape2)
   Idents(All_FB)<-All_FB$celltype
   Cellratio <- prop.table(table(Idents(All_FB), All_FB$orig.ident), margin = 2)
   Cellratio <- as.data.frame(Cellratio)
@@ -280,79 +274,6 @@ load("py_all_fb2.Rdata")
   ggsave("Figure2\\umap.svg",a,width=7,height=5)
 }
 
-#Figure 2H, S2H-I
-{
-  SpatialPlot(P,label = T)&scale_fill_manual(values = col)&ggtitle('ST data')
-  spatial_count <- P@assays$Spatial@counts
-  head(spatial_count)
-  slice_names <- names(P@images)
-  print(slice_names)
-  coords <- P@images[["spatial"]]@coordinates
-  head(coords)
-  coords<-coords[,2:3]
-  query  <- SpatialRNA(coords, spatial_count)
-  sc_counts <- scRNA@assays[["RNA"]]@counts
-  Celltype <- as.factor(scRNA$celltype)
-  names(Celltype) <- colnames(scRNA)
-  
-  reference <- Reference(sc_counts,Celltype,n_max_cells = 126478) 
-  
-  RCTD <- create.RCTD(query, reference, max_cores = 1)
-  RCTD <- run.RCTD(RCTD, doublet_mode = "doublet") 
-
-  weights <- RCTD@results$weights
-  norm_weights <- normalize_weights(weights)
-
-  result <- as.matrix(norm_weights)
-  local <- RCTD@spatialRNA@coords
-  head(local)
-
-  vizAllTopics(theta = result,
-               pos = local,
-               topicOrder=seq(ncol(result)),
-               topicCols=col,
-               r = 0.7, # size of scatterpies
-               lwd = 0.2,
-               showLegend = TRUE,
-               plotTitle = "Cell proportion")
-  
-  local_restored <- data.frame(
-    x = local$x,  
-    y = local$y    
-  )
-  rownames(local_restored) <- rownames(local)  
-
-  current_ratio <- (max(local$x) - min(local$x)) / (max(local$y) - min(local$y))
-  
-  scaled_pos <- local
-  scaled_pos$y <- scaled_pos$y * current_ratio  
-
-  a <- vizAllTopics(
-    theta = result,
-    pos = scaled_pos,  
-    topicOrder = c("TNFAIP6+ Fb", "MMP1+ Fb", "PI16+ Fb", "CCL19+ Fb","AQP1+ Fb", "PLCG2+ Fb","LRRC15+ Fb", "LAMP5+ Fb"),
-    topicCols = col,
-    r = 0.7,
-    lwd = 0.02,
-    showLegend = TRUE,
-    plotTitle = "Cell proportion"
-  );a
-  ggsave("Figure2\\RCTD-.svg", plot = a, width = 5, height =5)
-
-  RCTD_1<- as.data.frame(norm_weights)
-  head(RCTD_1)
-  P<-AddMetaData(P,metadata =RCTD_1)
-
-  selected_data <- P@meta.data[, colnames(RCTD_1)]
-  selected_data[is.na(selected_data)] <- 0
-
-  result_df <- as.data.frame(selected_data)
-  head(result_df)
-  P<-AddMetaData(P,metadata =selected_data)
-  
-  a<-SpatialFeaturePlot(P,features = colnames(RCTD_1));a
-  ggsave("Figure2\\RCTD2-.svg", plot = b, width = 3, height =3)
-}
 
 #Figure S2A
 {
@@ -373,7 +294,7 @@ load("py_all_fb2.Rdata")
                              axis.line.x = element_blank(), 
                              axis.line.y = element_blank(),
                              legend.position = "none");p000 
-  ggsave("FigureS2\\feature-plot.svg", plot = p000, width = 3, height =3)
+  ggsave("Figure2\\feature-plot.svg", plot = p000, width = 3, height =3)
 }
 
 #Figure S2B
@@ -415,7 +336,7 @@ load("py_all_fb2.Rdata")
       plot.title = element_text(size = 18, hjust = 0.5, family = "Arial")  
     )
   print(a)
-  ggsave("FigureS2\\violin_plot_col15a1.svg", plot = a, width = 10, height =3)
+  ggsave("Figure2\\violin_plot_col15a1.svg", plot = a, width = 10, height =3)
 }
 
 #Figure S2C-D
@@ -516,7 +437,7 @@ load("py_all_fb2.Rdata")
                               pt.size = 0,
                               cols = col);violin_after_scm
   
-  ggsave("FigureS2\\violin_plot.svg",violin_after_scm,width=3,height=3) 
+  ggsave("Figure2\\violin_plot.svg",violin_after_scm,width=3,height=3) 
 }
 
 #Figure S2E
@@ -539,6 +460,9 @@ load("py_all_fb2.Rdata")
     table(scobj$celltype)
   }
   
+  scobj<-All_FB
+
+
   signature_df <- read_csv("markergene.csv", show_col_types = FALSE)
   cleaned_pathway_names <- signature_df$`Gene signature` %>%
     str_replace_all("[^a-zA-Z0-9_]", "_") %>%
