@@ -60,62 +60,56 @@ library(SingleCellExperiment)
 library(qs)
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-load("py_all_fb2.Rdata")
+load("All_cell.Rdata")
+load("All_fb.Rdata")
 
 #Figure 1B
 {
-metadata <- All_FB@meta.data
-#Group by sample_group and count the number of unique orig.ident in each group
-sample_counts <- metadata %>%
-  group_by(sample_group) %>%
-  summarise(SampleCount = n_distinct(orig.ident)) %>%
-  ungroup()
-#Plot bar chart (transparent fill, use col variable for borders, and add numeric labels)
-sample_order <- c("S", "W1", "W7", "W30", "NS", "HS", "K", "CW")
-
-sample_counts$sample_group <- factor(sample_counts$sample_group, 
-                                     levels = sample_order)
-
-A <- ggplot(sample_counts, aes(x = sample_group, y = SampleCount, fill = sample_group, color = sample_group)) +
-  geom_bar(stat = "identity", size = 0.5, alpha = 0.8) +  
-  geom_text(aes(label = SampleCount), 
-            vjust = -0.5,  
-            size = 8,      
-            color = "black") + 
-  scale_fill_manual(values = col) + 
-  scale_color_manual(values = col) +  
-  scale_y_continuous(
-    breaks = scales::pretty_breaks(n = 5), 
-    labels = scales::comma_format(accuracy = 1), 
-    expand = expansion(mult = c(0, 0.1))
-  ) +
-  labs(x = "Sample group", y = "Number of sample", title = "ST and mIHC sample information") +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 0, hjust = 0.5, size = 22, color = "black"), 
-    axis.text.y = element_text(color = "black", size = 22), 
-    axis.title = element_text(color = "black", size = 22), 
-    axis.line = element_line(color = "black", size = 0.5),  
-    plot.title = element_text(hjust = 0.5, size = 22, face = "bold"),
-    panel.grid = element_blank(),  
-    legend.position = "none" 
-  );A
-ggsave("Figure1\\name.svg",A,width=7.5,height=2.5)
-
-#Figure 1G
-a<-DimPlot(All_FB, reduction = "umap", group.by = "celltype",
-           cols = col,
-           pt.size = 1,
-           label = T,label.box = T);a
-ggsave("Figure1\\umap.svg",a,width=7,height=5)
+  metadata <- All_FB@meta.data
+  #Group by sample_group and count the number of unique orig.ident in each group
+  sample_counts <- metadata %>%
+    group_by(sample_group) %>%
+    summarise(SampleCount = n_distinct(orig.ident)) %>%
+    ungroup()
+  #Plot bar chart (transparent fill, use col variable for borders, and add numeric labels)
+  sample_order <- c("S", "W1", "W7", "W30", "NS", "HS", "K", "CW")
+  
+  sample_counts$sample_group <- factor(sample_counts$sample_group, 
+                                       levels = sample_order)
+  
+  A <- ggplot(sample_counts, aes(x = sample_group, y = SampleCount, fill = sample_group, color = sample_group)) +
+    geom_bar(stat = "identity", size = 0.5, alpha = 0.8) +  
+    geom_text(aes(label = SampleCount), 
+              vjust = -0.5,  
+              size = 8,      
+              color = "black") + 
+    scale_fill_manual(values = col) + 
+    scale_color_manual(values = col) +  
+    scale_y_continuous(
+      breaks = scales::pretty_breaks(n = 5), 
+      labels = scales::comma_format(accuracy = 1), 
+      expand = expansion(mult = c(0, 0.1))
+    ) +
+    labs(x = "Sample group", y = "Number of sample", title = "ST and mIHC sample information") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 0, hjust = 0.5, size = 22, color = "black"), 
+      axis.text.y = element_text(color = "black", size = 22), 
+      axis.title = element_text(color = "black", size = 22), 
+      axis.line = element_line(color = "black", size = 0.5),  
+      plot.title = element_text(hjust = 0.5, size = 22, face = "bold"),
+      panel.grid = element_blank(),  
+      legend.position = "none" 
+    );A
+  ggsave("Figure1\\name.svg",A,width=7.5,height=2.5)
 }
+
 
 #Figure 1C
 {
-  scobj<-scRNA_harmony
-  metadata_subset <- scobj@meta.data[, c("sample_group", "celltype")]
+  metadata_subset <- All_cell@meta.data[, c("sample_group", "celltype")]
   metadata_subset <- na.omit(metadata_subset)
-
+  
   cell_count_table <- table(metadata_subset$sample_group, metadata_subset$celltype)
   cell_count_df <- as.data.frame.matrix(cell_count_table)
   cell_count_df$sample_group <- rownames(cell_count_df)
@@ -147,122 +141,40 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
     cluster_cols = T    
   )
   
+  #bar plot
+  #Count cell numbers per celltype from Seurat metadata & convert to data frame
+  cell_count <- as.data.frame(table(All_cell@meta.data$celltype))
+  # Rename columns for ggplot visualization
+  colnames(cell_count) <- c("celltype", "count")
+  
+  #Set the fixed order of cell types (match your provided list exactly)
+  cell_order <- c("B cell", "Endothelial cell", "Epidermal cell", "Fibroblast", 
+                  "Lymphatic endothelial cells", "Macrophage", "Mast cell", 
+                  "Melanocyte", "Nerve cell", "Pericyte", "T cell")
+  # Convert celltype to factor to lock plot order (avoid alphabetical sorting)
+  cell_count$celltype <- factor(cell_count$celltype, levels = cell_order)
+  
+  #Plot bar plot with gradient fill (heatmap-like, fill mapped to cell count)
+  A <- ggplot(cell_count, aes(x = celltype, y = count, fill = count)) +
+    geom_col(width = 0.7) + # Basic bar plot setting, 0.7 for better visual effect
+    # Add cell count labels on the top of bars, avoid overlap
+    geom_text(aes(label = count), vjust = -0.3, size = 3.5, color = "black") +
+    # Core setting: gradient color (light for low count, dark for high count)
+    scale_fill_gradient(low = "#FFF2E6", high = "#D93A00", name = "Cell Number")+
+    # Set axis labels and plot title
+    labs(x = "Cell Type", y = "Cell Number", title = "Cell Type Distribution in All_cell") +
+    # Rotate x-axis labels 45 degrees to avoid overlap of long cell type names
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 10)) +
+    # Classic academic theme for journal publication
+    theme_classic() +
+    # Optimize font size and position for all elements
+    theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+          axis.title = element_text(size = 12),
+          legend.title = element_text(size = 10),
+          legend.text = element_text(size = 9));A
+  ggsave("Figure1\\cell_count.svg",A,width=7.5,height=2.5)
 }
 
-#Figure 1F 
-{
-  setwd("E:\\H\\keloid\\data\\K-HC-NC-S\\new\\HS\\a\\NEW\\新建文件夹 (2)")
-  marker_gene <- read.csv('Table S2-不同病理状态富集分析.csv', row.names = 1)
-  head(marker_gene)
-  
-  library(clusterProfiler)
-  library(org.Hs.eg.db)  
-  library(dplyr)
-  library(stringr)
-  
-  all_entrez_ids <- marker_gene$geneID %>%
-    str_split(pattern = "/", simplify = TRUE) %>%
-    as.vector() %>%
-    str_trim() %>%
-    unique() %>%
-    .[. != ""]
-  
-  id_map <- bitr(
-    geneID = all_entrez_ids,  
-    fromType = "ENTREZID",    
-    toType = "SYMBOL",        
-    OrgDb = org.Hs.eg.db,    
-    drop = TRUE 
-  )
-  
-  entrez2symbol <- setNames(
-    id_map$SYMBOL,  
-    id_map$ENTREZID)
-  
-  marker_gene_converted <- marker_gene %>%
-    rowwise() %>%  
-    mutate(
-      geneID = str_split(geneID, "/", simplify = TRUE) %>%  
-        str_trim() %>%  
-        sapply(function(x) {
-          ifelse(x %in% names(entrez2symbol), entrez2symbol[x], x)
-        }) %>%
-        paste(collapse = "/")  
-    ) %>%
-    ungroup()  
-  
-  cat("Top3 geneID：\n")
-  print(marker_gene$geneID[1:3])
-  cat("\nTop geneID（Symbol）：\n")
-  print(marker_gene_converted$geneID[1:3])
-  
-  top5_go <- marker_gene_converted %>%
-    dplyr::group_by(cluster) %>%  
-    dplyr::arrange(p.adjust, .by_group = TRUE) %>%  
-    dplyr::slice_head(n = 5) %>%  
-    dplyr::ungroup() 
-  
-  pathway_gene_list <- purrr::map(
-    seq_len(nrow(top5_go)),
-    function(i) {
-      genes <- strsplit(top5_go$geneID[i], "/")[[1]]
-      genes <- trimws(genes)
-      genes <- genes[genes != ""]
-      return(genes)
-    }
-  )
-  
-  names(pathway_gene_list) <- top5_go$Description
-  
-  All_FB <- Seurat::AddModuleScore(
-    object = All_FB,
-    features = pathway_gene_list, 
-    name = "Pathway_Score_", 
-    assay = "RNA", 
-    slot = "data"  
-  )
-  
-  temp_colnames <- grep("^Pathway_Score_", colnames(All_FB@meta.data), value = TRUE)
-  stopifnot(length(temp_colnames) == length(pathway_gene_list))
-  colnames(All_FB@meta.data)[match(temp_colnames, colnames(All_FB@meta.data))] <- names(pathway_gene_list)
-  
-  cat("成功添加", length(pathway_gene_list), "个通路评分到metadata：\n")
-  print(names(pathway_gene_list))
-
-  head(All_FB@meta.data[, names(pathway_gene_list)])
-  
-  meta_subset <- as.data.frame(All_FB@meta.data) %>%
-    dplyr::select(sample_group, dplyr::all_of(names(pathway_gene_list))) 
-  
-  pathway_mean_by_sample <- meta_subset %>%
-    dplyr::filter(!is.na(sample_group)) %>%
-    dplyr::group_by(sample_group) %>%
-    dplyr::summarise(
-      dplyr::across(
-        .cols = dplyr::everything(),
-        .fns = ~mean(.x, na.rm = TRUE),
-        .names = "{.col}"
-      ),
-      .groups = "drop"
-    ) %>%
-    tibble::column_to_rownames("sample_group")
-  
-  print(pathway_mean_by_sample)
-  data <- t(scale(t(pathway_mean_by_sample)))
-  font2 <- 8
-  data_transposed <- t(data)
-
-  p <- pheatmap(data_transposed,
-                fontsize = font2,
-                cellwidth = font2 + 2,
-                cellheight = font2 + 2,
-                cluster_cols = T,
-                cluster_rows = F,
-                main = "scale_t"
-                );p 
-  
-  ggsave("A+ FbCd74+ Fb-cellratio.svg",p,wi=10,he=3.5)
-  }
 
 #Figure 1D
 {
@@ -270,6 +182,7 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
                 raster = FALSE, cols = c("#D34340","lightcyan3","lightcyan3","lightcyan3","lightcyan3"
                                                   ,"lightcyan3","lightcyan3","lightcyan3"), 
                 label = FALSE, label.box = TRUE,pt.size= 0.1);p1
+  ggsave("Figure1\\UMAP_sample group.svg",A,width=7.5,height=2.5)
   
 }
 
@@ -278,13 +191,8 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
   gene<-c("COL4A1", "COL4A2", "COL5A2", "COL18A1", "COL1A1", "COL3A1", "COL5A1", "COL6A1", "COL6A3", "COL12A1", "COL1A2", "COL6A2", "BGN", "FN1", "SERPINH1", "SPARC", "BMP1", "TIMP1", "AEBP1", "FKBP10", "PCOLCE", "THBS2", "TGFBI", "SULF1", "PDGFRB", "MMP14", "SPON2", "OSTC", "PXDN", "UACA", "ITGB5", "CALU", "FBXO32", "RAB31", "TPM4", "ANTXR1", "CTSB", "GAPDH", "KDELR2", "MYH9", "NREP", "P4HB", "PDLIM7", "PPIB", "PRSS23", "RCN3", "THY1", "ACTB", "ACTN1", "C4orf48", "CALR", "CERCAM", "CFL1", "IGFBP4", "PKM", "PLXDC1", "ISG15", "IFI6", "IFITM3", "HLA-A", "HLA-B", "HLA-C", "IL32", "MIF", "S100A11", "TMSB10","CXCL1")
   ave <-  AverageExpression(All_FB,assays = "RNA",features=gene,
                             group.by = "sample_group",verbose = T)$RNA
-  data <- scale(ave)
-  font2 <- 8
-  p <- pheatmap(data,fontsize=font2,cellwidth = font2+2, cellheight = font2+2,
-                cluster_cols=FALSE,cluster_rows=FALSE,main="scale")
-  print(p)
+  
   data <- t(scale(t(ave)))
-  font2 <- 8
   data_transposed <- t(data)
   pheatmap(
     mat = data_transposed,  
@@ -297,7 +205,7 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
     border_color = NA,    
     fontsize_row = 6,     
     fontsize_col = 8,      
-    main = "100个目标基因在不同 sample_group 中的 zscore 表达热图",  
+    main = "inflammatory and fibrotic genes expression in distinct sample group",  
     annotation_colors = NULL,  
     cluster_rows = F,  
     cluster_cols = T  
@@ -305,10 +213,9 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
   
 }
 
+
 #Figure 1G
 {
-  library(ggplot2)
-  library(dplyr)
   umap_data <- Embeddings(All_FB, reduction = "umap") %>%
     as.data.frame() %>%
     setNames(c("UMAP_1", "UMAP_2")) %>%
@@ -321,7 +228,7 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
   
   plot_data <- left_join(umap_data, meta_data, by = "cell_id")
   
-  aa<-ggplot(plot_data, aes(x = UMAP_1, y = UMAP_2, color = celltype)) +
+  a<-ggplot(plot_data, aes(x = UMAP_1, y = UMAP_2, color = celltype)) +
     geom_point(size = 0.2, alpha = 0.2) +  
     scale_color_manual(values = col) +
     theme_minimal() +
@@ -342,8 +249,8 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
           alpha = 1     
         )
       )
-    ) ;aa
-  ggsave("Figure1\\umap_celltype.svg",aa,width=6,height=4)
+    ) ;a
+  ggsave("Figure1\\umap_celltype.svg",a,width=6,height=4)
 }
 
 #Figure 1I
@@ -352,7 +259,7 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
   library(tidyr)
   library(tidyverse) 
   library(ROGUE)
-
+  
   All_FB <- NormalizeData(All_FB)
   All_FB <- FindVariableFeatures(All_FB, selection.method = "vst", nfeatures = 3000)
   hvgs <- VariableFeatures(All_FB)
@@ -371,12 +278,12 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
   write.csv(rogue.res, "rogue.res-fb.csv", row.names = TRUE)
   set.seed(123)
   #rogue.res1<-rogue.res[,c(1:8)]
-  rogue.res2<-rogue.res[,c(9:16)]
+  rogue.res2<-rogue.res[,c(1:8)]
   rogue.res_long <- pivot_longer(rogue.res2, 
                                  cols = everything(), 
                                  names_to = "cell", 
                                  values_to = "score")
-
+  
   rogue.res_long <- rogue.res_long[is.finite(rogue.res_long$score), ]
   a<-ggplot(rogue.res_long, aes(y = score, x = cell, fill = cell, color = cell)) +
     geom_half_violin(side = "l", alpha = 0.3, trim = FALSE) +
@@ -388,7 +295,7 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
     theme_minimal() +
     theme(
       legend.position = "none",
-      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,size=12,color = "black"),  # 旋转 x 轴标签 90 度
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1,size=12,color = "black"), 
       axis.text.y = element_text(angle = 90, vjust = 0.5, hjust = 1,size=12,color = "black"),
       panel.border = element_rect(colour = "black", fill = NA) 
     );a
@@ -410,58 +317,58 @@ ggsave("Figure1\\umap.svg",a,width=7,height=5)
 #Figure S1A
 {
   a<-DimPlot(All_cell, reduction = "umap", group.by = "celltype",
-            cols = col,
-            pt.size = 1,
-            label = T,label.box = T);a
+             cols = col,
+             pt.size = 1,
+             label = T,label.box = T);a
   ggsave("Figure1\\umap.svg",a,width=7,height=5)
-
+  
   genelist<-c("IGHG1", "IGLC2", "IGHG2", "IGHG4","IGKC", "IGLC1", "SELE", "ACKR1", "TM4SF1", "AQP1", "PECAM1",
-            "KRT14", "KRT1", "KRT5", "KRT10", "DMKN","DCN", "COL1A1", "CFD", "SFRP2", "COL1A2", "TFE3", "MMRN1",
-            "FABP4", "TFPI", "CXCL8", "HLA-DRA", "IL1B", "LYZ", "G0S2", "TPSAB1", "CTSG", "HPGD", "CPA3", "DCT",
-            "TYRP1", "PMEL", "MLANA", "MITF", "S100B", "IGFBP5", "MPZ", "CRYAB", "NRXN1", "ACTA2", "TAGLN", 
-            "C11orf96", "MYL9", "CXCR4","IL7R", "GNLY", "CCL5", "IL32")  
+              "KRT14", "KRT1", "KRT5", "KRT10", "DMKN","DCN", "COL1A1", "CFD", "SFRP2", "COL1A2", "TFE3", "MMRN1",
+              "FABP4", "TFPI", "CXCL8", "HLA-DRA", "IL1B", "LYZ", "G0S2", "TPSAB1", "CTSG", "HPGD", "CPA3", "DCT",
+              "TYRP1", "PMEL", "MLANA", "MITF", "S100B", "IGFBP5", "MPZ", "CRYAB", "NRXN1", "ACTA2", "TAGLN", 
+              "C11orf96", "MYL9", "CXCR4","IL7R", "GNLY", "CCL5", "IL32")  
   ave <-  AverageExpression(All_cell,assays = "RNA",features=genelist,
-                              group.by = "celltype",verbose = T)$RNA
+                            group.by = "celltype",verbose = T)$RNA
   data <- t(scale(t(ave)))
   font2 <- 8
   data_transposed <- t(data)
   col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-      
+  
   p <- pheatmap(data_transposed,
-                    fontsize = font2,
-                    cellwidth = font2 + 2,
-                    cellheight = font2 + 2,
-                    cluster_cols = F,
-                    cluster_rows = F,
-                    main = "scale_t",
-                    color = col2);p 
+                fontsize = font2,
+                cellwidth = font2 + 2,
+                cellheight = font2 + 2,
+                cluster_cols = F,
+                cluster_rows = F,
+                main = "scale_t",
+                color = col2);p 
   ggsave(file="FigureS1/heatmap.svg",p,width =10,height = 3)
-  }
+}
 
 #Figure S1B
 {
-p000 <- Plot_Density_Custom(`All_cell`, features = "COL1A1", custom_palette = col2) +
-  theme(
-    panel.grid.major = element_blank(), 
-    panel.grid.minor = element_blank(),  
-    panel.border = element_rect(         
-      color = "black",                  
-      fill = NA,                        
-      linewidth = 0.8                  
-    ),
-    axis.title = element_blank(),        
-    axis.text.x = element_blank(),     
-    axis.text.y = element_blank(),      
-    axis.ticks = element_blank(),       
-    panel.background = element_rect(fill = 'white'), 
-    plot.background = element_rect(fill = "white"),   
-    legend.text = element_text(size = 0),  
-    axis.line = element_blank(),       
-    axis.line.x = element_blank(),     
-    axis.line.y = element_blank(),    
-    legend.position = "none"           
-  );p000 
-ggsave("FigureS1\\COL1A1.svg",p000,width=6,height=3.375)
+  p000 <- Plot_Density_Custom(`All_cell`, features = "COL1A1", custom_palette = col2) +
+    theme(
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),  
+      panel.border = element_rect(         
+        color = "black",                  
+        fill = NA,                        
+        linewidth = 0.8                  
+      ),
+      axis.title = element_blank(),        
+      axis.text.x = element_blank(),     
+      axis.text.y = element_blank(),      
+      axis.ticks = element_blank(),       
+      panel.background = element_rect(fill = 'white'), 
+      plot.background = element_rect(fill = "white"),   
+      legend.text = element_text(size = 0),  
+      axis.line = element_blank(),       
+      axis.line.x = element_blank(),     
+      axis.line.y = element_blank(),    
+      legend.position = "none"           
+    );p000 
+  ggsave("FigureS1\\COL1A1.svg",p000,width=6,height=3.375)
 }
 
 #Figure S1C
@@ -496,7 +403,7 @@ ggsave("FigureS1\\COL1A1.svg",p000,width=6,height=3.375)
   Idents(All_cell)<-All_cell$celltype
   Cellratio <- prop.table(table(Idents(All_cell), All_cell$orig.ident), margin = 2)
   Cellratio <- as.data.frame(Cellratio)
-
+  
   Cellratio <- Cellratio %>%
     mutate(Group = case_when(
       grepl("^K\\d+", Var2) ~ "K",
@@ -584,7 +491,7 @@ ggsave("FigureS1\\COL1A1.svg",p000,width=6,height=3.375)
            axis.text.x = element_text(angle = 0.1, vjust = 0.8), 
            strip.text.x = element_text(size = 10, face = 'bold') 
     );p
-
+  
   p1 <- p +
     geom_text_repel(
       data = top5_up_down,
@@ -618,7 +525,7 @@ ggsave("FigureS1\\COL1A1.svg",p000,width=6,height=3.375)
   
   plot_data <- left_join(umap_data, meta_data, by = "cell_id")
   
-  a<-ggplot(plot_data, aes(x = UMAP_1, y = UMAP_2, color = sample_group)) +
+  aa<-ggplot(plot_data, aes(x = UMAP_1, y = UMAP_2, color = sample_group)) +
     geom_point(size = 0.2, alpha = 0.2) +  
     scale_color_manual(values = col) +
     theme_minimal() +
@@ -639,5 +546,6 @@ ggsave("FigureS1\\COL1A1.svg",p000,width=6,height=3.375)
           alpha = 1     
         )
       )
-    ) ;a
-  }
+    ) ;aa
+  ggsave("FigureS1\\umap.png",aa,width=6,height=4)
+}
