@@ -1,53 +1,60 @@
+library(remotes)
+library(devtools)
+library(glue)
+library(Matrix)
+library(reticulate)
 library(Seurat)
+library(SeuratData)
+library(harmony)
+library(scTenifoldKnk)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(reshape2)
+library(rstatix)
 library(ggplot2)
 library(cowplot)
 library(ggpubr)
 library(patchwork)
-library(glue)
-library(tidyverse)
 library(ggh4x)
 library(ggfun)
-library(clusterProfiler)
-library(org.Hs.eg.db)
-library(dplyr)
-library(devtools)
+library(ggforce)
+library(ggrepel)
+library(ggrastr)
+library(pheatmap)
+library(ComplexHeatmap)
+library(circlize)
+library(scales)
+library(RColorBrewer)
+library(paletteer)
+library(wesanderson)
+library(viridis)
+library(plotly)
+library(htmlwidgets)
 library(SingleR)
 library(CellChat)
-library(paletteer)
 library(scRNAtoolVis)
-library(reticulate)
-library(pheatmap)
-library(harmony)
-library(RColorBrewer)
-library(scales)
-library(ggrastr)
-library(ggrepel)
-library(Matrix)
 library(Nebulosa)
 library(scCustomize)
 library(STdeconvolve)
-library(png)
-library(ComplexHeatmap)
-library(circlize)
-library(scater)
-library(ggforce)
-library(reshape2)
 library(spacexr)
-library(msigdbr)
+library(scater)
+library(clusterProfiler)
+library(org.Hs.eg.db)
 library(org.Mm.eg.db)
-library(wesanderson)
-library(grid)
-library(tidyr)
-library(rstatix)
+library(msigdbr)
+library(enrichplot)
 library(decoupleR)
-library(tibble)
-library(plotly)
-library(htmlwidgets)
 library(progeny)
-library(viridis)
-library(SeuratData)
+library(png)
+library(grid)
+
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+
+load("All_fb.Rdata")
+load("virtual knockout.Rdata")
 
 #Figure 4A
 {
@@ -82,7 +89,7 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
       
       dat_use <- t(GetAssayData(All_FB, slot = "data")[top_hvg, , drop = FALSE]) 
       dat_use <- as.data.frame(dat_use)
-
+      
       if (ncol(dat_use) != length(top_hvg)) {
         stop("warning3")
       }
@@ -93,7 +100,7 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
       if (nrow(df) == 0 || ncol(df) < 3) {
         stop("warning4")
       }
-
+      
       expr_cols <- df[, 2:(1+length(top_hvg)), drop = FALSE]  
       if (nrow(expr_cols) == 0 || ncol(expr_cols) != length(top_hvg)) {
         stop("warning")
@@ -123,7 +130,7 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
       }
       
       for (cell_type in cell_types) {
-        cat("\ncelltype：", cell_type, "\n")
+        cat("\ncelltype:", cell_type, "\n")
         
         df1 <- subset(df, celltype == cell_type)
         if (nrow(df1) == 0) {
@@ -136,7 +143,7 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
           df1[[gene]] > 0
         })
         density_data <- subset(df1, Reduce("&", density_conditions))
-        cat("  no 0：", nrow(density_data), "\n")
+        cat("  no 0:", nrow(density_data), "\n")
         
         has_density <- FALSE
         if (nrow(density_data) >= 5) {  #5 sample
@@ -281,7 +288,7 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
 
 #Figure 4D
 {
-  GO_top10=read.csv('kegg2-pi16.csv')
+  GO_top10=read.csv('kegg-pi16.csv')
   head(GO_top10)
   plot_df <- GO_top10 %>%
     dplyr::mutate(ONTOLOGY = factor(ONTOLOGY, levels = rev(c("BP", "CC", "MF","KEGG")), ordered = T)) %>%
@@ -317,66 +324,16 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
       axis.title = element_text(color = "#000000", size = 15),
       plot.title = element_text(color = "#000000", size = 20, hjust = 0.5)
     ) 
-  
   plot
+  
   ggsave("Figure4/PI16-enrichment.svg", plot, width=6 ,height=8.5)
 }
 
+
 #Figure 4F,4H
 {
-  library(remotes)
-  library(devtools)
-  library(dplyr)
-  library(Seurat)
-  library(scTenifoldKnk)
-  library(ggplot2)
-  library(ggrepel)
-  scRNA_K <- FindVariableFeatures(All_FB, 
-                                  selection.method = "vst",  
-                                  nfeatures = 3000,
-                                  assay = "RNA")  
-  
-  variable_genes <- VariableFeatures(scRNA_K)
-  countMatrix <- GetAssayData(scRNA_K, assay = "RNA", slot = "counts")
-  countMatrix <- countMatrix[variable_genes, ]
-  mt_genes <- grep("^MT-", rownames(countMatrix), ignore.case = TRUE, value = TRUE)
-  print(paste("found", length(mt_genes), "MT genes"))
-  
-  if(length(mt_genes) == 0){
-    warning("no MT")
-    qc <- FALSE
-  } else {
-    qc <- TRUE
-  }
-  
-  {
-    
-    print("QC")
-    lib_size <- colSums(countMatrix)
-    print(paste("min library:", min(lib_size)))
-    print(paste("max library:", max(lib_size)))
-    print(paste("average library:", mean(lib_size)))
-    
-    keep_cells_lib <- lib_size >= 2000
-    print(paste("cell counts ≥2000:", sum(keep_cells_lib)))
-    
-    countMatrix_filtered <- countMatrix[, keep_cells_lib]
-  }
-  
-  result <- scTenifoldKnk(countMatrix = countMatrix_filtered,
-                          gKO ='PI16',
-                          qc =qc,
-                          qc_mtThreshold =0.2,
-                          qc_minLSize =2000,
-                          nc_nNet =20,
-                          nc_nCells =1000,
-                          nc_nComp =3,
-                          nCores = 8
-  )
-
   top_genes <- head(result$diffRegulation[order(-result$diffRegulation$FC), ], 5000)
-  
-  top_genes<-top_genes[3:40,]
+  top_genes<-top_genes[3:80,]
   ggplot(top_genes, aes(x=reorder(gene, FC), y=FC)) +
     geom_bar(stat='identity', fill='steelblue') +
     coord_flip() +
@@ -395,13 +352,10 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
                     size=3, max.overlaps=50) +
     labs(title="Z vs -log10(p-value)",
          x="Z-score", y="-log10(p-value)") +
-    theme_classic()
+    theme_classic();A
   ggsave("Figure4/PI16_knockdown.svg", A, width=3 ,height=5)
   
   #Figure 4I
-  library(Seurat)
-  library(pheatmap)
-  library(dplyr)
   core_genes <- c("CD55", "PI16", "CD248", "KLF4") 
   other_genes <- c("CFD", "ASPN", "HTRA1", "EDIL3", "MDK", "GXYLT2", "CTHRC1",
                    "COL5A1", "ZFP36L2", "NR4A1", "COL5A2", "NR4A2", "MFAP2",
@@ -440,49 +394,47 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
   }
   
   print(head(cor_matrix))
-  
   A<-pheatmap(
     mat = cor_matrix,
     main = "Correlation between target genes and core Fb genes", 
-    color = colorRampPalette(c("#2166ac", "white", "#b2182b"))(100), 
+    color = colorRampPalette(c("#2166ac", "white", "#b2182b"))(100),  
     border_color = "black",  
     cellwidth = 30, cellheight = 8,  
     show_rownames = TRUE, show_colnames = TRUE, 
     fontsize_row = 6, fontsize_col = 10, 
     treeheight_row = 20, treeheight_col = 0,  
-    cluster_rows = TRUE, cluster_cols = T, 
+    cluster_rows = TRUE, cluster_cols = TRUE, 
     display_numbers = FALSE,  
     number_format = "%.2f", 
     annotation_legend = TRUE,
-    legend_labels = c("Negative", "0", "Positive")  
+    breaks = seq(-1, 1, length.out = 101),  
+    legend_breaks = c(-1, 0, 1),            
+    legend_labels = c("Negative", "0", "Positive") 
   );A
-  ggsave("Figure4/knockdown_heatmap.svg", A, width=4 ,height=7)
-  
 }
 
 #Figure S4A
 {
   All_FB= All_FB[,All_FB@meta.data$sample_group %in% c("S","NS","HS","K")]
-  DEG <- read.csv("scvi_celltype-DEG.csv")
-  
+  DEG <- read.csv("scANVI_celltype-DEG.csv")
   gene_sets <- DEG %>% 
     filter(avg_log2FC > 0.25) %>% 
     group_by(cluster) %>% 
     slice_head(n = 50) %>%
     summarise(genes = list(gene)) %>% 
     deframe()
-
+  
   All_FB <- AddModuleScore(
     object = All_FB,
     features = list(Score = gene_sets$`PI16+ Fb`), 
     name = "PI16Fb",                        
     ctrl = 100                                 
   )
-
+  
   scores <- All_FB@meta.data[, c("PI16Fb1","sample_group")]
-
+  
   PI16_expression <- GetAssayData(All_FB, assay = "RNA", slot = "data")["PI16", ]
-
+  
   combined_data <- data.frame(scores, PI16_expression = as.numeric(PI16_expression))
   combined_data <- combined_data[combined_data$PI16_expression != 0, ]
   a <- ggplot(combined_data , aes(sample_group, PI16Fb1, color = sample_group, fill = sample_group)) +
@@ -511,21 +463,19 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
           legend.position = "none",
           panel.grid.major.x = element_blank(),  
           panel.grid.minor.x = element_blank()) +
-    
     scale_x_discrete(limits = c("S", "NS", "HS", "K"), 
                      expand = expansion(add = 0.7))  
-
+  
   print(a)
   ggsave("Figure4/PI16-score.svg",a,wi=2,he=2)
 }
 
 #Figure S4F
 {
-  library(glue)
-  genes <- c( "VEGFA","CD55") # 这里可以根据需要修改细胞名称
+  genes <- c( "VEGFA","CD55") 
   
   {
-    ave <-  AverageExpression(PI16,assays = "RNA",features=c(genes[1],genes[2]),
+    ave <-  AverageExpression(All_FB,assays = "RNA",features=c(genes[1],genes[2]),
                               group.by = "orig.ident",verbose = T)$RNA
     data <- scale(ave)
     font2 <- 8
@@ -617,36 +567,34 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
   
   
 }
+save(scRNA_FB_AI,file = "scRNA_validated_sampledata.Rdata")
 
 #Figure S5D-J
 {
-  scRNA_harmony<-scRNA_FB_AI
-  scRNA_harmony@meta.data$celltype = "NA"
-  for(i in 1:nrow(celltype)){
-    scRNA_harmony@meta.data[which(scRNA_harmony@meta.data$seurat_clusters == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
-  table(scRNA_harmony$celltype)
+  table(scRNA_FB_AI$celltype)
   col2 <- c(  "#CD5C5C",  "#FFC0CB", "#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE","#FF4500", "#FF6347", "#FFA07A")
   col2 <- colorRampPalette(col2)(13)
   col3 <- c("#00CED1", "#FFA07A")
   col3 <- colorRampPalette(col3)(21)
+  col5 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
   #Figure S5D
-  p1 = DimPlot(scRNA_harmony, group.by="orig.ident", 
+  p1 = DimPlot(scRNA_FB_AI, group.by="orig.ident", 
                pt.size = 0.1, label.size=5, label = T,label.box =T,
                reduction='umap',cols = col2,raster=FALSE, raster.dpi = c(1, 1));p1
   #Figure S5E
-  p1 = DimPlot(scRNA_harmony, group.by="sample_group3", 
+  p1 = DimPlot(scRNA_FB_AI, group.by="sample_group3", 
                pt.size = 0.1, label.size=5, label = T,label.box =T,
                reduction='umap',cols = col2,raster=FALSE, raster.dpi = c(1, 1));p1
   
   #Figure S5F
-  p1 = DimPlot(scRNA_harmony, group.by="celltype", 
+  p1 = DimPlot(scRNA_FB_AI, group.by="celltype", 
                pt.size = 0.1, label.size=5, label = T,label.box =T,
                reduction='umap',cols = col2,raster=FALSE, raster.dpi = c(1, 1));p1
-                       
+  
   ggsave("Figure4/regressive scar.svg",p1, width = 7, height =5)
-                       
+  
   #Figure S5G
-  p000 <- Plot_Density_Custom(scRNA_harmony, "PI16", custom_palette = col5) +
+  p000 <- Plot_Density_Custom(scRNA_FB_AI, "PI16", custom_palette = col5) +
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           panel.border = element_blank(),
@@ -663,19 +611,16 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
           legend.position = "none");p000 
   
   #Figrue S5H
-  p <- DotPlot(scRNA_harmony, group.by = "celltype",
+  p <- DotPlot(scRNA_FB_AI, group.by = "celltype",
                features = c("PI16"), 
                dot.scale = 10);p
   ggsave("Figure4/Dotplot.svg",p, width = 4.5, height =5.5)
   
   #Figure S5I
-  Idents(scRNA_harmony)<-scRNA_harmony$celltype
-  Cellratio <- prop.table(table(Idents(scRNA_harmony), scRNA_harmony$orig.ident), margin = 2)
+  Idents(scRNA_FB_AI)<-scRNA_FB_AI$celltype
+  Cellratio <- prop.table(table(Idents(scRNA_FB_AI), scRNA_FB_AI$orig.ident), margin = 2)
   Cellratio <- as.data.frame(Cellratio)
-  library(dplyr)
-  library(ggplot2)
-  library(ggforce) 
-  library(ggpubr)
+
   Cellratio <- Cellratio %>%
     mutate(Group = case_when(
       grepl("^AC\\d+", Var2) ~ "K",
@@ -686,7 +631,7 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
       grepl("^NS\\d+", Var2) ~ "MS",
       TRUE ~ as.character(NA)
     ))
-
+  
   specific_values <- c("PI16+ Fb")
   table(All_FB$celltype)
   
@@ -718,8 +663,8 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
   
   ggsave("Figure4/PI16-cellratio.SVg",a,wi=3.752,he=3)
   
-  table(scRNA_harmony$sample_group3)
-  count_table<-table(scRNA_harmony@meta.data[,"celltype"],scRNA_harmony@meta.data[,"sample_group3"])
+  table(scRNA_FB_AI$sample_group3)
+  count_table<-table(scRNA_FB_AI@meta.data[,"celltype"],scRNA_FB_AI@meta.data[,"sample_group3"])
   Cellratio <- as.data.frame(count_table)
   p3<-ggplot(Cellratio, aes(x=Var2, y=Freq, fill=Var1)) +
     geom_bar(position="fill", stat="identity") +
@@ -740,5 +685,6 @@ col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
       legend.spacing.y = unit(5, "cm"), 
       legend.box.just = "top" 
     );p3
-
+  
   ggsave("Figure4/cell ratio.svg", p3, width=4.5 ,height=5)
+}
