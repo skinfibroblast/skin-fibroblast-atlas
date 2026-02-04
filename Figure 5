@@ -49,16 +49,17 @@ library(SeuratData)
 library(forcats)
 library(ggExtra)
 library(MASS)
+library(monocle)
+
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-load("py_all_fb2.Rdata")
+load("All_cell.Rdata")
+load("All_fb.Rdata")
+
 
 ###Figure 5B
 {
-  data <- data.frame(
-    group = c("CW", "K", "HS", "NS", "W7", "S", "W30", "W1"),
-    value = c(87.9, 8.2, 1.4, 1.4, 0.6, 0.4, 0.2, 0)
-  )
+  data=read.csv('Figure5/pie chart.csv',row.names = 1)
   data <- data %>%
     arrange(desc(group)) %>%  
     mutate(
@@ -89,11 +90,11 @@ load("py_all_fb2.Rdata")
   ggsave("Figure5-ratio.svg", plot = a, width = 3, height =4)
 }
 
+
 #Figure 5C
 {
-  scRNA_subh = All_FB[,All_FB@meta.data$sample_group  %in% "CW"]
+  load("scRNA_CW_sample_data.Rdata")
   Idents(scRNA_subh)<-scRNA_subh$celltype
-  
   count_table<-table(scRNA_subh@meta.data[,"celltype"],scRNA_subh@meta.data[,"sample_group"])
   count_mtx<-as.data.frame.matrix(count_table)
   count_mtx$cluster<-rownames(count_mtx)
@@ -128,11 +129,11 @@ load("py_all_fb2.Rdata")
     ) +
     scale_fill_manual(values = col) 
   print(p1)
-  ggsave("Figure5-barplot.png", p1, width=8 ,height=3)
+  ggsave("barplot.png", p1, width=8 ,height=3)
 }
 
 {
-  data=read.csv('GSE199939-优势基因表达水平2.csv',row.names = 1)
+  data=read.csv('expression of marker genes.csv',row.names = 1)
   long_data <- data %>%
     pivot_longer(
       cols = -Group,
@@ -240,7 +241,7 @@ load("py_all_fb2.Rdata")
         stop("Error: The following genes are not present in the Seurat object:", paste(missing_genes, collapse=", "))
       }
       
-      dat_use <- t(GetAssayData(All_FB, slot = "data")[top_hvg, , drop = FALSE])  
+      dat_use <- t(GetAssayData(All_FB, slot = "data")[top_hvg, , drop = FALSE])  # 添加drop=FALSE确保矩阵结构
       dat_use <- as.data.frame(dat_use)
       
       if (ncol(dat_use) != length(top_hvg)) {
@@ -443,7 +444,7 @@ load("py_all_fb2.Rdata")
 
 #Figure 5I 
 {
-  library(ggrepel)
+  markers_scarvswound=read.csv('Figure5/COL4A1-VS-LRRC15-DEG.csv')
   markers<-markers_scarvswound
   markers <- markers %>%
     mutate(Difference = pct.1 - pct.2) %>% 
@@ -491,7 +492,7 @@ load("py_all_fb2.Rdata")
 
 #Figure 5J 
 {
-  data=read.csv('Figure5//COL4A1 VS CTHRC1.csv',row.names = 1)
+  data=read.csv('Figure5/COL4A1 VS CTHRC1.csv',row.names = 1)
   plot_data <- data %>%
     mutate(
       plot_score = case_when(
@@ -546,6 +547,7 @@ load("py_all_fb2.Rdata")
 
 # Figure 5K
 {
+  load("COL4A1+ Fb pseudotime trajectory.Rdata")
   ##5K-I
   col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#FF7F00","#1F78B4","#B3D88B",  "#FF7F00","#64B482",
                 "#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB", "#800080",
@@ -557,7 +559,7 @@ load("py_all_fb2.Rdata")
                         cell_link_size = 1.5,
                         color_cells = col)+ 
   scale_color_manual(values = col);a 
-  ggsave("Figure5\\Pseudotime.svg", plot = a, width = 8, height =7)
+  ggsave("Figure5/Pseudotime.svg", plot = a, width = 8, height =7)
 
 ##5K-ii-v
   col2 <- c("#761C78", "white", "tomato")  
@@ -567,7 +569,7 @@ load("py_all_fb2.Rdata")
                         cell_size = 1.5,
                         cell_link_size = 1.5) +
   scale_color_gradientn(colors = col2);b
-  ggsave("Figure5\\Pseudotime2.svg", plot = b, width = 8, height =7)
+  ggsave("Figure5/Pseudotime2.svg", plot = b, width = 8, height =7)
 }
 
 
@@ -580,7 +582,7 @@ load("py_all_fb2.Rdata")
                         color_by = "sample_group") +   
   facet_wrap("~sample_group", 
              ncol=2)+ scale_color_manual(values = col);c
-  ggsave("Figure5\\Pseudotime3.svg", plot = c, width = 7, height =11)
+  ggsave("Figure5/Pseudotime3.svg", plot = c, width = 7, height =11)
 
   df <- pData(cds)  
   d<-ggplot(df,
@@ -595,7 +597,7 @@ load("py_all_fb2.Rdata")
   scale_color_manual(values = col)+theme(
     legend.position = "none"  
   );d
-  ggsave("Figure5\\Pseudotime4.svg", plot = d, width = 7, height =2.5)
+  ggsave("Figure5/Pseudotime4.svg", plot = d, width = 7, height =2.5)
 }
 
 
@@ -612,7 +614,7 @@ load("py_all_fb2.Rdata")
                                   cores = 6,  
                                   fullModelFormulaStr = "~sm.ns(Pseudotime)")
 
-sig_gene_names <- rownames(diff_test %>%
+  sig_gene_names <- rownames(diff_test %>%
                              filter(qval < 0.01) %>%
                              arrange(qval)) %>% 
   as.character()
