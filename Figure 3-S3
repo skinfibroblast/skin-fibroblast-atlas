@@ -57,16 +57,18 @@ library(tradeSeq)
 library(BiocParallel)
 library(SingleCellExperiment)
 library(qs)
-
+library(enrichplot)
 
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B","#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-load("py_all_fb2.Rdata")
-
+load("All_cell.Rdata")
+load("All_fb.Rdata")
+load("Radio.Rdata")
 
 #Figure 3B
 {
   markers=read.csv('Figure3/markers_scarvsskin-DEG.csv')
+
   markers <- markers %>%
     mutate(Difference = pct.1 - pct.2) %>% 
     rownames_to_column("gene")
@@ -111,7 +113,7 @@ load("py_all_fb2.Rdata")
     geom_hline(yintercept = 0,linetype = 2) +
     labs(x="△ Percentage difference",y="Log-Fold change") + 
     theme_bw()
-  ggsave("Figure3/markers.svg",width = 6.5,height = 3)  
+  ggsave("Figure3/markers_LAMP5.svg",width = 6.5,height = 3)  
   
   ###GSEA
   cluster_markers_samplegroup<-read.csv("Figure3/markers_scarvsskin-DEG.csv",row.names = 1)
@@ -124,7 +126,7 @@ load("py_all_fb2.Rdata")
   names(gene_list) <- rownames(degs_data)
   gene_list <- sort(gene_list, decreasing = TRUE)
   msig_h <- msigdbr(species = "Homo sapiens", category = "H") 
-  
+
   gsea_res <- GSEA(gene_list,
                    TERM2GENE = msig_h[, c("gs_name", "gene_symbol")],
                    pvalueCutoff = 1)  
@@ -142,7 +144,7 @@ load("py_all_fb2.Rdata")
 
 #Figure 3D
 {
-  deg<-read.csv("celltype-DEG.csv")
+  deg<-read.csv("scANVI_celltype-DEG.csv")
   selected_rows <- deg[deg$cluster %in% c("LRRC15+ Fb", "LAMP5+ Fb", "CTHRC1+ Fb", "CCL19+ Fb", "PI16+ Fb"), ]
   desired_order <- c("CCL19+ Fb", "PI16+ Fb", "CTHRC1+ Fb", "LAMP5+ Fb", "LRRC15+ Fb")
   selected_rows$cluster<-factor(selected_rows$cluster, levels = desired_order, ordered = TRUE)
@@ -181,7 +183,7 @@ load("py_all_fb2.Rdata")
 
 #Figure 3E
 {
-  #load("SDS.Rdata")
+  load("slingshot_sample_data.Rdata")
     sds <- SlingshotDataSet(sim)
     lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
       curve_data <- slingCurves(sds)[[i]]
@@ -216,10 +218,11 @@ load("py_all_fb2.Rdata")
     ggsave(filename='figure3/slingPseudotime_6.SVG',p,width=9,height=5)
     
   ###########################################
+  ###########################################
     sce<-sce_tnfaip6
     p <- ggscatter(data = plt_data,
                       x = 'Pseudotime',
-                      y = "COL3A1",
+                      y = "EPAS1",
                       color = 'col',
                       size = 2,
                       alpha=1) +
@@ -339,7 +342,7 @@ load("py_all_fb2.Rdata")
   
   print(p)
   
-  ggsave("Figure3//collagen_expression_barchart.svg", p, width = 12, height = 9)
+  ggsave("Figure3//collagen_expression_barchart_with_stats.svg", p, width = 12, height = 9)
   
 }
 
@@ -422,7 +425,7 @@ load("py_all_fb2.Rdata")
 #Figure 3J
 {
   scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("CTHRC1+ Fb","LAMP5+ Fb","LRRC15+ Fb")]
-  celltype=read.csv('celltype_4-fibrosis.csv')
+  celltype=read.csv('celltype_PFFbs.csv')
   table(scRNA_sub$celltype)
   scRNA_sub@meta.data$celltype2<-scRNA_sub@meta.data$celltype
   scRNA_sub@meta.data$celltype = "NA"
@@ -491,7 +494,6 @@ load("py_all_fb2.Rdata")
   ggsave("Figure3/pie chart.svg", p2, width=3 ,height=3) 
   
 }
-
 
 #Figure 3L
 {
@@ -589,7 +591,7 @@ load("py_all_fb2.Rdata")
 #Figuer S3A
 {
   library(ggrepel)
-  cluster_markers_samplegroup2<-read.csv("scvi_celltype-DEG.csv",row.names = 1)
+  cluster_markers_samplegroup2<-read.csv("scANVI_celltype-DEG.csv",row.names = 1)
   markers <- cluster_markers_samplegroup2 %>% filter(cluster=="PI16+ Fb") %>% arrange(desc(avg_log2FC))
   {
     markers <- markers %>%
@@ -637,6 +639,7 @@ load("py_all_fb2.Rdata")
 
 #Figure S3F-K
 {
+
   scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("LRRC15+ Fb","LAMP5+ Fb","CTHRC1+ Fb","CCL19+ Fb","PI16+ Fb")]
   
   group.by <- scRNA_sub@meta.data$celltype
@@ -678,9 +681,7 @@ load("py_all_fb2.Rdata")
 
 #Figure S3N-T
 {
-  scRNA_harmony= scRNA_RAIDO[,scRNA_RAIDO@meta.data$orig.ident %in% c("GSM8135452","GSM8135453",
-                                                                      "GSM8135456","GSM8135455")]
-  
+
   marker_sign<-c("PPP1R13L", "GADD45A", "ERBB2", "RRM2B", "CCND1", "TP53I13", "PML", "PTEN", "TP53INP2", "BBC3", "PURPL", "KLLN", "TP53I11", "CDIP1", "JMY", "PIDD1", "TP53INP1", "BAX", "TP53I3", "CDKN2A", "CDKN1A", "MDM2", "TP53")
   ave <-  AverageExpression(scRNA_harmony,assays = "RNA",features=marker_sign,group.by = "sample_group",
                             verbose = T)$RNA
@@ -729,7 +730,7 @@ load("py_all_fb2.Rdata")
     scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
     labs(title = "cluster markers", y = "", x = "");p
   
-  DEG <- read.csv("scvi_celltype-DEG.csv")
+  DEG <- read.csv("scANVI_celltype-DEG.csv")
 
   gene_sets <- DEG %>% 
     filter(avg_log2FC > 0.25) %>% 
