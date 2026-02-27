@@ -183,7 +183,8 @@ load("Radio.Rdata")
 
 #Figure 3E
 {
-  load("slingshot_sample_data.Rdata")
+  load("slingshot_sample_data1.Rdata")
+  load("slingshot_sample_data2.Rdata")
     sds <- SlingshotDataSet(sim)
     lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
       curve_data <- slingCurves(sds)[[i]]
