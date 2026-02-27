@@ -63,7 +63,7 @@ col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B", "#
 
 #Figure 8C
 {
-  load("scRNA_LC_MC_FB_sample.Rdata")
+  scRNA_LC_MC_FB <- readRDS(file = "scRNA_LC_MC_FB_sample.rds")
   score_columns <- grep("_Score1$", colnames(scRNA_LC_MC_FB@meta.data), value = TRUE)
 
   final.markers <- score_columns
@@ -93,7 +93,9 @@ col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B", "#
 
 #8e - 8i
 {
-  load("cell chat.Rdata")
+  cellchat_M1 <- readRDS(file = "cellchat_M1.rds")
+
+  cellchat_M3 <- readRDS(file = "cellchat_M3.rds")
   ###8E
   groupSize <- as.numeric(table(cellchat_M3@idents))
   cellchat_M3 <- netAnalysis_computeCentrality(cellchat_M3, slot.name = "netP")
