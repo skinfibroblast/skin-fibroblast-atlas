@@ -57,7 +57,7 @@ library(pheatmap)
 
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",  "#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-load("Wound.Rdata")
+scRNA_subh <- readRDS(file = "wound.rds")
 
 
 #Figure 6A
@@ -102,7 +102,7 @@ load("Wound.Rdata")
 
 #Figure 6D-E
 {
-  load("slingshots_acute_wound.Rdata")
+  sim <- readRDS(file = "slingshots_acute_wound.rds")
   sds <- SlingshotDataSet(sim)
   lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
     curve_data <- slingCurves(sds)[[i]]
@@ -140,8 +140,8 @@ load("Wound.Rdata")
 
 #Figure 6F
 {
-  load("acute_wound_sample data.Rdata")
-  celltype=read.csv('celltype_4_Wound.csv')
+  pbmc3k <- readRDS(file = "acute_wound_sample data.rds")
+  celltype=read.csv('celltype_4-WOUND.csv')
   
   pbmc3k@meta.data$celltype2<-pbmc3k@meta.data$celltype
   pbmc3k@meta.data$celltype = "NA"
@@ -242,7 +242,7 @@ load("Wound.Rdata")
 
 #Figure 6H
 {
-  load("acute_wound_sample data.Rdata")
+  pbmc3k <- readRDS(file = "acute_wound_sample data.rds")
   table(pbmc3k$celltype)
   group.by <- pbmc3k$celltype
   group.by <- factor(group.by, levels = c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb","LRRC15+ Fb","PI16+ Fb")) # 按照特定的顺序排序
@@ -255,7 +255,6 @@ load("Wound.Rdata")
              ,"COL6A3", "COL6A2", "COL6A1", "COL2A1", "COL1A1", "COL1A2", "COL3A1")
   
   library(pheatmap)
-  table(All_FB$celltype_scanvi)
   ave <-  AverageExpression(pbmc3k,assays = "RNA",features=geneset,group.by = "celltype",
                             verbose = T)$RNA
   data <- t(scale(t(ave)))
@@ -276,38 +275,8 @@ load("Wound.Rdata")
 #Figure 6J
 {
 
-  load("acute wound TF.Rdata")
+  df <- readRDS(file = "acute wound TF.rds")
 
-  pbmc3k@assays$RNA@counts[1:2,]
-
-  pbmc3k <- FindVariableFeatures(pbmc3k, selection.method = "vst", nfeatures = 10000)
-
-  hvgs <- VariableFeatures(pbmc3k)
-  
-  mat <- GetAssayData(pbmc3k, slot = "data")[hvgs, ]
-  mat <- as.matrix(mat)
-  
-  
-  net <- get_collectri(organism='human', split_complexes=FALSE)
-  # Extract the normalized log-transformed counts
-  
-  # Run ulm
-  acts2 <- run_ulm(mat=mat, net=net, .source='source', .target='target',
-                   .mor='mor', minsize = 5)
-  Idents(pbmc3k)<-pbmc3k$celltype
-  
-  pbmc3k[['tfsulm']] <- acts2 %>%
-    pivot_wider(id_cols = 'source', 
-                names_from = 'condition',
-                values_from = 'score') %>%
-    column_to_rownames('source') %>%
-    Seurat::CreateAssayObject(.)
-
-  DefaultAssay(object = pbmc3k) <- "tfsulm"
-
-  pbmc3k <- ScaleData(pbmc3k)
-  pbmc3k@assays$tfsulm@data <- pbmc3k@assays$tfsulm@scale.data
-  
   n_tfs <- 200
   df <- t(as.matrix(pbmc3k@assays$tfsulm@data)) %>%
     as.data.frame() %>%
@@ -339,7 +308,6 @@ load("Wound.Rdata")
   my_breaks <- c(seq(-3, 0, length.out=ceiling(palette_length/2) + 1),
                  seq(0.05, 3, length.out=floor(palette_length/2)))
   
-  table(All_FB$celltype)
   
   colnames_order <- c("CCL19+ Fb","TNFAIP6+ Fb","MMP1+ Fb","LRRC15+ Fb", "PI16+ Fb")
   top_acts_mat_ordered <- top_acts_mat[colnames_order, , drop = FALSE]
