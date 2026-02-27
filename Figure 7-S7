@@ -53,7 +53,9 @@ library(devtools)
 library(reticulate)
 library(png)
 library(scales)
-load("mus_scRNAseq_sample.Rdata")
+scRNA_mus_all <- readRDS(file = "mus_scRNAseq_sample1.rds")
+
+scRNA_mus_fb <- readRDS(file = "mus_scRNAseq_sample2.rds")
 
 #Figure 7B-D
 {
