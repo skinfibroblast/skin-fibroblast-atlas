@@ -94,10 +94,7 @@ load("All_fb.Rdata")
 #Figure 5C
 {
   load("scRNA_CW_sample_data.Rdata")
-  Idents(scRNA_subh)<-scRNA_subh$celltype
-  count_table<-table(scRNA_subh@meta.data[,"celltype"],scRNA_subh@meta.data[,"sample_group"])
-  count_mtx<-as.data.frame.matrix(count_table)
-  count_mtx$cluster<-rownames(count_mtx)
+
   melt_mtx<-melt(count_mtx)
   melt_mtx$cluster<-as.factor(melt_mtx$cluster)
   cluster_size<-aggregate(value~cluster,data=melt_mtx,FUN=sum)
