@@ -29,10 +29,12 @@ library(nichenetr)
 library(Seurat)
 library(SeuratObject)
 library(tidyverse)
-##Figure 9D-H, S9
+cellchat_M1 <- readRDS(file = "cellchat_M1.rds")
+cellchat_M2 <- readRDS(file = "cellchat_M2.rds")
+cellchat_M3 <- readRDS(file = "cellchat_M3.rds")
 
+##Figure 9D-H, S9
 {
-  load("model_group cell chat.Rdata")
   #9D
   cellchat_M2 <- netAnalysis_computeCentrality(cellchat_M2, slot.name = "netP")
   groupSize <- as.numeric(table(cellchat_M2@idents))
@@ -120,7 +122,9 @@ library(tidyverse)
 
 ##Figure 9I-S10H,9J 
 {
-  load("sample_group cellchat.Rdata")
+  cellchat_W30 <- readRDS(file = "cellchat_W30.rds")
+  cellchat_PS <- readRDS(file = "cellchat_PS.rds")
+
   object.list <- list( PS = cellchat_PS,W30 = cellchat_W30)
   object.list = lapply(object.list, function(x){
     x = netAnalysis_computeCentrality(x)
