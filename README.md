@@ -1,1 +1,3 @@
-These are the codes for fibroblast atlas of wound healing.
+These are the code files for the pan-wound-healing-stages fibroblast atlas. 
+The data used in this study can be accessed via the following Zenodo link:
+https://zenodo.org/records/23193882?preview=1&token=eyJhbGciOiJIUzUxMiIsImlhdCI6MTc5MTYxODg3MywiZXhwIjoxNzkyMDIyMzk5fQ.eyJpZCI6IjZiODM3N2Y0LTIzNzUtNGFiMi04NmFjLTdiZTc2ZWE5NGIzMSIsImRhdGEiOnt9LCJyYW5kb20iOiIwOTU0YmJlNmM1ZDg1ZjNmNTQ5NDZhZTQ5OGNlMDc4ZCJ9.n10wNPxtQ5FbIFj1Hdfl-1EfNLjunY3l8GP87SNTGoa-M6tWaEIj36eSLdzQgs4N1zczv7MhXTM--2TAREp4Bw
