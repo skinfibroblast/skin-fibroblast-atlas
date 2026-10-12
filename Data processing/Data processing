@@ -1,0 +1,250 @@
+# Load libraries
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer)
+library(ggplot2)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(nichenetr)
+library(SeuratObject)
+
+# Set color palette
+col <- c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",
+                  "#FF7F00","#64B482","#DDA0DD","#bf033b","darkred","#A0522D","#DAA520",
+                  "#FFC0CB","#800080","#9370DB","#DDA0DD","#7FFFD4","#00CED1","#AFEEEE")
+                  
+# Set working directory
+setwd("E:/H")
+dir_name <- list.files()
+names(dir_name) <- dir_name
+
+# Read 10X data from directories
+scRNAlist <- list()
+for (i in 1:length(dir_name)) {
+  counts <- Read10X(data.dir = dir_name[i])
+  scRNAlist[[dir_name[i]]] <- CreateSeuratObject(
+    counts,
+    project = dir_name[i],
+    min.cells = 3,
+    min.features = 300
+  )
+}
+
+# Read 10X h5 files
+h5_dir <- "E:/"
+h5_files <- list.files(h5_dir, pattern = "\\.h5$", full.names = TRUE)
+if (length(h5_files) != 12) {
+  warning(paste("Found", length(h5_files), "h5 files, expected 12, please check path."))
+}
+
+seurat_list1 <- list()
+for (f in h5_files) {
+  sample_name <- gsub("\\.h5$", "", basename(f))
+  counts <- Read10X_h5(f)
+  obj <- CreateSeuratObject(
+    counts = counts,
+    project = sample_name,
+    min.cells = 3,
+    min.features = 300
+  )
+  obj$sample <- sample_name
+  seurat_list1[[sample_name]] <- obj
+}
+table(All_FB$orig.ident)
+combined_list <- c(seurat_list1, scRNAlist)
+
+# Calculate mitochondrial and hemoglobin percentages
+for (i in 1:length(combined_list)) {
+  sc <- combined_list[[i]]
+  sc[["mt_percent"]] <- PercentageFeatureSet(sc, pattern = "^MT-")
+  HB_genes <- c("HBA1","HBA2","HBB","HBD","HBE1","HBG1","HBG2","HBM","HBQ1","HBZ")
+  HB_m <- match(HB_genes, rownames(sc@assays$RNA))
+  HB_genes <- rownames(sc@assays$RNA)[HB_m]
+  HB_genes <- HB_genes[!is.na(HB_genes)]
+  sc[["HB_percent"]] <- PercentageFeatureSet(sc, features = HB_genes)
+  combined_list[[i]] <- sc
+  rm(sc)
+}
+
+# Filter cells based on QC metrics
+combined_list <- lapply(combined_list, function(x) {
+  subset(x,
+         nFeature_RNA > 300 & nFeature_RNA < 7000 &
+           mt_percent < 20 & HB_percent < 3 & nCount_RNA > 1000)
+})
+
+# Merge all samples
+combined_list <- merge(combined_list[[1]], y = combined_list[-1])
+
+# Normalize, find variable features, scale, and run PCA
+set.seed(123)
+combined_list <- NormalizeData(combined_list) %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 3000) %>%
+  ScaleData() %>%
+  RunPCA(npcs = 30, verbose = TRUE, seed.use = 42)
+
+# Harmony integration
+scRNA_harmony <- RunHarmony(
+  combined_list,
+  group.by.vars = "orig.ident",
+  random.seed = 123
+)
+
+# Clustering, tSNE, and UMAP
+scRNA_harmony <- FindNeighbors(scRNA_harmony, reduction = "harmony", dims = 1:30) %>%
+  FindClusters(resolution = 3)
+
+scRNA_harmony <- RunTSNE(scRNA_harmony, reduction = "harmony", dims = 1:30)
+
+scRNA_harmony <- RunUMAP(
+  scRNA_harmony,
+  reduction = "harmony",
+  dims = 1:30,
+  umap.method = "uwot",
+  metric = "cosine",
+  seed.use = 123
+)
+
+umap_integrated <- DimPlot(scRNA_harmony, reduction = "umap", label = TRUE, raster = FALSE)
+feature_plot <- FeaturePlot(scRNA_harmony, features = "ACTA2", raster = FALSE)
+
+# Subset fibroblasts based on cluster IDs
+# Manual cell type annotation was performed by visualizing the expression of marker genes on UMAP plots
+scRNA_FB <- scRNA_harmony[, scRNA_harmony@meta.data$seurat_clusters %in% c(
+  "36","47","4","5","0","45","19","24","26","37","38","52")]
+
+# Re-process fibroblast subset
+scRNA_FB <- DietSeurat(scRNA_FB, counts = TRUE, data = TRUE)
+scRNA_FB <- NormalizeData(scRNA_FB) %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 3000) %>%
+  ScaleData() %>%
+  RunPCA(npcs = 30, verbose = TRUE, seed.use = 42)
+
+# Harmony integration for fibroblast subset
+scRNA_FB <- RunHarmony(
+  scRNA_FB,
+  group.by.vars = "orig.ident",
+  random.seed = 123
+)
+
+# Clustering, tSNE, and UMAP for fibroblast subset
+scRNA_FB <- FindNeighbors(scRNA_FB, reduction = "harmony", dims = 1:30) %>%
+  FindClusters(resolution = 1)
+
+scRNA_FB <- RunTSNE(scRNA_FB, reduction = "harmony", dims = 1:30)
+
+scRNA_FB <- RunUMAP(
+  scRNA_FB,
+  reduction = "harmony",
+  dims = 1:30,
+  umap.method = "uwot",
+  metric = "cosine",
+  seed.use = 123
+)
+
+umap_integrated_fb <- DimPlot(scRNA_FB, reduction = "umap", label = TRUE, raster = FALSE)
+ggsave("FB-CLUSTER.png", umap_integrated_fb, width = 15, height = 8)
+feature_plot <- FeaturePlot(scRNA_FB, features = "MMP1", raster = FALSE)
+
+# Calculate differentially expressed genes
+cluster_markers <- FindAllMarkers(
+  object = scRNA_FB,
+  test.use = "wilcox",
+  only.pos = TRUE,
+  logfc.threshold = 0.25
+)
+write.csv(cluster_markers, "all_fb_markers.csv", row.names = FALSE)
+
+# Assign sample groups
+celltype <- read.csv('celltype1.csv')
+scRNA_FB@meta.data$sample_group <- "NA"
+for (i in 1:nrow(celltype)) {
+  scRNA_FB@meta.data[which(scRNA_FB@meta.data$orig.ident == celltype$ClusterID[i]),
+                     'sample_group'] <- celltype$celltype[i]
+}
+table(scRNA_FB$sample_group)
+
+# Assign cell types
+celltype <- read.csv('celltype2.csv')
+scRNA_FB@meta.data$celltype <- "NA"
+for (i in 1:nrow(celltype)) {
+  scRNA_FB@meta.data[which(scRNA_FB@meta.data$seurat_clusters == celltype$ClusterID[i]),
+                     'celltype'] <- celltype$celltype[i]
+}
+table(scRNA_FB$celltype)
+
+# Export to h5ad for scVI/scANVI analysis
+library(sceasy)
+library(reticulate)
+convertFormat(
+  scRNA_FB,
+  from = "seurat",
+  to = "anndata",
+  main_layer = "counts",
+  outFile = "All_FB.h5ad"
+)
+
+# turn to python
+# ...
+# ...
+# Read processed h5ad back to Seurat
+library(sceasy)
+library(Seurat)
+All_FB <- convertFormat(
+  "All_FB_processed_full.h5ad",
+  from = "anndata",
+  to = "seurat"
+)
+print(All_FB)
+
+# Clustering and UMAP using scANVI embedding
+All_FB <- FindNeighbors(All_FB, reduction = "scANVI", dims = 1:30) %>%
+  FindClusters(resolution = 1)
+
+All_FB <- RunUMAP(
+  All_FB,
+  reduction = "scANVI",
+  dims = 1:30,
+  umap.method = "uwot",
+  metric = "cosine",
+  seed.use = 123
+)
+
+umap_integrated_fb <- DimPlot(All_FB, reduction = "umap", label = TRUE, raster = FALSE)
+ggsave("FB_clusters.png", umap_integrated_fb, width = 15, height = 8)
+
+# Calculate DEGs on scANVI-based clusters
+cluster_markers <- FindAllMarkers(
+  object = All_FB,
+  test.use = "wilcox",
+  only.pos = TRUE,
+  logfc.threshold = 0.25
+)
+
+# Filter top 100 genes per cluster
+all.markers <- cluster_markers %>%
+  dplyr::select(gene, everything()) %>%
+  dplyr::filter(p_val < 0.05)
+top10 <- all.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 100, wt = avg_log2FC)
+write.csv(cluster_markers, "all_fb_markers_scanvi.csv", row.names = FALSE)
+
+###### Annotate cell types based on marker genes ##########
+#...
+###### save seurat object ##########
+save(All_FB,"All_FB.Rdata")
