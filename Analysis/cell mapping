@@ -1,0 +1,166 @@
+# Load libraries
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer) 
+library(ggplot2)
+library(scRNAtoolVis)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(reticulate)
+library(devtools)
+library(nichenetr)
+library(SeuratObject)
+library(tidyverse)
+library(readxl)
+library(tidyr)
+
+col<-c("#9370DB","#800080","#1F78B4","#B3D88B", "#FF7F00","#64B482","#DDA0DD",
+                '#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", 
+                "#00CED1", "#AFEEEE","#FF4500", "#FF6347", "#FFA07A", "#FFD700","#D2691E","#F0E68C","#800080",
+                "#FFE4B5", "#CD5C5C", "#8B4513", "#A0522D", "#DAA520", "#FFC0CB","#008000", 
+                "#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1")
+# Read Steele DEG table
+load("All_FB.Rdata")
+deg_data <- read_excel("41590_2025_2267_MOESM1_ESM.xlsx")
+head(deg_data)
+
+# Select top 50 markers per subtype by logFC
+N_top <- 50
+gene_list <- deg_data %>%
+  group_by(Group) %>%
+  arrange(desc(logFC), .by_group = TRUE) %>%
+  slice_head(n = N_top) %>%
+  summarise(genes = list(Gene))
+
+geneset_list <- setNames(gene_list$genes, gene_list$Group)
+names(geneset_list)
+
+# Compute module scores
+All_FB <- AddModuleScore(
+  object = All_FB,
+  features = geneset_list,
+  name = "Steele_"
+)
+
+# Rename score columns to subtype names
+score_cols <- grep("^Steele_\\d+$", colnames(All_FB@meta.data), value = TRUE)
+for (i in seq_along(score_cols)) {
+  All_FB@meta.data[[names(geneset_list)[i]]] <- All_FB@meta.data[[score_cols[i]]]
+}
+All_FB@meta.data <- All_FB@meta.data[, !colnames(All_FB@meta.data) %in% score_cols]
+
+# Extract metadata and reshape to long format
+meta <- All_FB@meta.data
+score_cols_new <- names(geneset_list)
+
+plot_data <- meta %>%
+  select(celltype, all_of(score_cols_new)) %>%
+  pivot_longer(cols = -celltype, names_to = "Steele_Subtype", values_to = "Score")
+
+# Violin plot per subtype
+p_violin <- ggplot(plot_data, aes(x = celltype, y = Score, fill = celltype)) +
+  geom_violin(scale = "width", trim = FALSE) +
+  facet_wrap(~ Steele_Subtype, scales = "free_y", ncol = 4) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  labs(title = "Steele subtype gene set scores across our cell types",
+       x = "Our cell types", y = "Module score")
+print(p_violin)
+ggsave("Steele_ModuleScores_Violin.pdf", p_violin, width = 14, height = 10)
+
+# Average score per cell type
+mean_scores <- meta %>%
+  group_by(celltype) %>%
+  summarise(across(all_of(score_cols_new), mean)) %>%
+  column_to_rownames(var = "celltype")
+
+# DotPlot of subtype scores
+p <- DotPlot(All_FB, group.by = "celltype",
+             features = c("Health-F2: Universal", "Disease-F7: Myofibroblast",
+                          "Disease-F6: Inflammatory myofibroblast", "Disease-F1: Superficial",
+                          "Disease-F3: FRC-like",
+                          "Disease-F8: Fascia-like myofibroblast", "Disease-F_Fascia",
+                          "Health-F1: Superficial", "Health-F2/3: Perivascular",
+                          "Health-F3: FRC-like", "Health-F4: DP_HHIP+",
+                          "Health-F4: DS_DPEP1+", "Health-F4: TNN+COCH+", "Health-F5: NGFR+",
+                          "Health-F5: RAMP1+"),
+             dot.scale = 10) +
+  RotatedAxis() +
+  scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
+  labs(title = "cluster markers", y = "", x = "")
+print(p)
+ggsave("Violin.svg", p, width = 8.3, height = 8)
+
+# Violin plot for a single subtype score
+plot_single_steel_score <- function(seurat_obj,
+                                    score_col_name,
+                                    celltypes_to_plot = NULL,
+                                    colors = c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B", "#FF7F00","#64B482","#DDA0DD",
+                                                        '#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4",
+                                                        "#00CED1", "#AFEEEE")) {
+                                                        
+  if (!score_col_name %in% colnames(seurat_obj@meta.data)) {
+    stop(paste("Column", score_col_name, "not found. Available columns:\n",
+               paste(colnames(seurat_obj@meta.data), collapse = ", ")))
+  }
+  
+  meta <- seurat_obj@meta.data
+  meta$celltype <- as.character(meta$celltype)
+  
+  if (is.null(celltypes_to_plot)) {
+    celltypes_to_plot <- unique(meta$celltype)
+  } else {
+    missing_ct <- setdiff(celltypes_to_plot, unique(meta$celltype))
+    if (length(missing_ct) > 0) {
+      warning(paste("The following cell types not found:", paste(missing_ct, collapse = ", ")))
+    }
+    celltypes_to_plot <- intersect(celltypes_to_plot, unique(meta$celltype))
+  }
+  
+  meta_sub <- meta[meta$celltype %in% celltypes_to_plot, ]
+  
+  # Order cell types by mean score
+  avg_scores <- meta_sub %>%
+    group_by(celltype) %>%
+    summarise(mean_score = mean(.data[[score_col_name]], na.rm = TRUE)) %>%
+    arrange(desc(mean_score))
+  
+  meta_sub$celltype <- factor(meta_sub$celltype, levels = avg_scores$celltype)
+  
+  p <- ggplot(meta_sub, aes(x = celltype, y = .data[[score_col_name]], fill = celltype)) +
+    geom_violin(scale = "width", trim = FALSE, alpha = 0.7) +
+    geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) +
+    stat_summary(fun.data = function(x) data.frame(y = mean(x), ymin = mean(x), ymax = mean(x)),
+                 geom = "errorbar", width = 0.3, color = "red", size = 1.2) +
+    scale_fill_manual(values = colors) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+          axis.text.y = element_text(size = 15),
+          axis.title = element_text(size = 15),
+          plot.title = element_text(size = 15, hjust = 0.5),
+          legend.position = "none",
+          panel.grid = element_blank(),
+          panel.border = element_rect(color = "black", fill = NA, linewidth = 1)) +
+    labs(title = paste("Module score for", score_col_name),
+         x = "Cell type (ordered by mean score)",
+         y = "Module score")
+  
+  print(p)
+  return(p)
+}
+# Disease-F7: Myofibroblast is shown as an example; adjust accordingly for the target cell.
+plot_single_steel_score(All_FB, "Disease-F7: Myofibroblast")
+ggsave("Steele_Violin.pdf", p, width = 14, height = 10)
