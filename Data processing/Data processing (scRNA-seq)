@@ -149,6 +149,7 @@ cluster_markers <- FindAllMarkers(
 write.csv(cluster_markers, "all_fb_markers.csv", row.names = FALSE)
 
 # Assign sample groups
+# The celltype file has been uploaded to Figshare.
 celltype <- read.csv('celltype1.csv')
 scRNA_FB@meta.data$sample_group <- "NA"
 for (i in 1:nrow(celltype)) {
@@ -158,6 +159,7 @@ for (i in 1:nrow(celltype)) {
 table(scRNA_FB$sample_group)
 
 # Assign cell types
+# The celltype file has been uploaded to Figshare.
 celltype <- read.csv('celltype2.csv')
 scRNA_FB@meta.data$celltype <- "NA"
 for (i in 1:nrow(celltype)) {
