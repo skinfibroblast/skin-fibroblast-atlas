@@ -1,0 +1,243 @@
+# import packages
+import scanpy as sc
+import numpy as np
+import pandas as pd
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import torch
+import cell2location
+from cell2location.models import RegressionModel, Cell2location
+from cell2location.plt import plot_spatial
+import logging
+import sys
+import traceback
+
+# load reference and train regression model
+adata_ref = sc.read_h5ad("adata_ref.h5ad")
+
+RegressionModel.setup_anndata(adata_ref, batch_key='orig.ident', labels_key='celltype')
+mod = RegressionModel(adata=adata_ref)
+
+print("Training reference model (200 epochs)...")
+mod.train(
+    max_epochs=200,
+    batch_size=3000,
+    train_size=1,
+    lr=0.002,
+    datasplitter_kwargs={'num_workers': 7}
+)
+
+# export posterior and save
+adata_ref = mod.export_posterior(
+    adata_ref,
+    sample_kwargs={'num_samples': 500, 'batch_size': 1280}
+)
+
+mod.save("./my_reference_model3/", overwrite=True)
+adata_ref.write("./adata_ref_cell2location.h5ad")
+
+# export reference cell-type signatures (inf_aver)
+if 'means_per_cluster_mu_fg' in adata_ref.varm.keys():
+    inf_aver = adata_ref.varm['means_per_cluster_mu_fg'][
+        [f'means_per_cluster_mu_fg_{i}' for i in adata_ref.uns['mod']['factor_names']]
+    ].copy()
+else:
+    inf_aver = adata_ref.var[
+        [f'means_per_cluster_mu_fg_{i}' for i in adata_ref.uns['mod']['factor_names']]
+    ].copy()
+
+inf_aver.columns = adata_ref.uns['mod']['factor_names']
+inf_aver.to_csv("./inf_aver.csv")
+print("inf_aver saved, shape:", inf_aver.shape)
+
+mod.plot_QC()
+
+# the following files can be loaded directly
+# load posterior reference data
+adata_ref = sc.read_h5ad("./adata_ref_cell2location.h5ad")
+print("adata_ref loaded:", adata_ref.shape)
+
+# load reference model (optional, for QC or re-export)
+mod_ref = RegressionModel.load("./my_reference_model3/", adata=adata_ref)
+print("Reference model loaded.")
+
+# load inf_aver for spatial mapping
+inf_aver = pd.read_csv("./inf_aver.csv", index_col=0)
+print("inf_aver loaded, shape:", inf_aver.shape)
+print(inf_aver.iloc[0:5, 0:5])
+
+# load spatial data and preprocess
+sample_name = "W1"
+adata_spatial = sc.read_h5ad("P4-W1.h5ad")
+print(f"{sample_name} loaded:", adata_spatial.shape)
+
+# filter mitochondrial genes
+adata_spatial.var['MT_gene'] = [g.startswith('MT-') for g in adata_spatial.var_names]
+adata_spatial = adata_spatial[:, ~adata_spatial.var['MT_gene'].values].copy()
+print("After filtering mitochondrial genes:", adata_spatial.shape)
+
+# keep shared genes between spatial data and reference signatures
+intersect = np.intersect1d(adata_spatial.var_names, inf_aver.index)
+adata_spatial = adata_spatial[:, intersect].copy()
+inf_aver_sub = inf_aver.loc[intersect, :].copy()
+
+print("adata_spatial gene number:", adata_spatial.n_vars)
+print("inf_aver_sub row number:", inf_aver_sub.shape[0])
+print("Gene order identical:", np.all(adata_spatial.var_names == inf_aver_sub.index))
+
+# run cell2location deconvolution
+Cell2location.setup_anndata(adata=adata_spatial, batch_key=None)
+
+mod_spatial = Cell2location(
+    adata_spatial,
+    cell_state_df=inf_aver_sub,
+    N_cells_per_location=25,
+    detection_alpha=20
+)
+
+mod_spatial.train(
+    max_epochs=7000,
+    batch_size=None,
+    train_size=1
+)
+
+mod_spatial.plot_history(1000)
+plt.legend(labels=['full data training'])
+plt.show()
+
+adata_spatial = mod_spatial.export_posterior(
+    adata_spatial,
+    sample_kwargs={'num_samples': 1000, 'batch_size': adata_spatial.n_obs}
+)
+
+mod_spatial.save(f'./cell2loc_mapping_{sample_name}/', overwrite=True)
+adata_spatial.write(f'./{sample_name}_cell2location_mapping.h5ad')
+print(f"{sample_name} analysis finished, results saved.")
+
+# add abundance to obs and visualize spatially
+adata_spatial.obs[adata_spatial.uns['mod']['factor_names']] = \
+    adata_spatial.obsm['q05_cell_abundance_w_sf']
+
+with mpl.rc_context({'axes.facecolor': 'black', 'figure.figsize': [4.5, 5]}):
+    sc.pl.spatial(
+        adata_spatial,
+        cmap='magma',
+        color=adata_ref.obs['celltype'].unique(),
+        ncols=4,
+        size=0.0418,
+        img_key='lowres',
+        vmin=0,
+        vmax='p99.2'
+    )
+
+# co-localization plots with original and gray background
+adata = adata_spatial
+mpl.rcParams['font.family'] = 'Arial'
+mpl.rcParams['font.sans-serif'] = ['Arial']
+mpl.rcParams['axes.unicode_minus'] = False
+
+adata.write_h5ad("P4-W1-co_localization.h5ad")
+
+# temporarily set lowres scalefactor to 1 to avoid double scaling in plot_spatial
+adata.uns['spatial']['spatial']['scalefactors']['tissue_lowres_scalef'] = 1.0
+
+clust_labels = ['TNFAIP6+ Fb', 'CCR7+', 'LTB+', 'HMOX1+']
+clust_col = clust_labels
+
+# backup original background image
+img_original = adata.uns['spatial']['spatial']['images']['lowres'].copy()
+
+# plot 1: original background
+with mpl.rc_context({'figure.figsize': (12, 6)}):
+    fig1 = plot_spatial(
+        adata=adata,
+        color=clust_col,
+        labels=clust_labels,
+        img_key='lowres',
+        show_img=True,
+        style='fast',
+        max_color_quantile=0.992,
+        circle_diameter=3,
+        colorbar_position='right',
+        reorder_cmap=[0, 2, 4, 3]
+    )
+
+for txt in fig1.findobj(mpl.text.Text):
+    txt.set_fontsize(12)
+
+fig1.savefig("P4-W1-with_bg.svg", format="svg", dpi=600, bbox_inches="tight")
+plt.show()
+
+# plot 2: gray background
+img = img_original.copy()
+if img.ndim == 3:
+    gray = img[..., :3].mean(axis=2)
+else:
+    gray = img
+
+gray = gray.astype(float)
+gray = (gray - gray.min()) / (gray.max() - gray.min() + 1e-9)
+contrast = 0.3
+gray_contrast = np.clip((gray - 0.5) * (1 + 1/contrast) + 0.5, 0, 1)
+gray_faded = 0.5 + 0.5 * gray_contrast
+gray_rgb = np.stack([gray_faded] * 3, axis=-1)
+
+adata.uns['spatial']['spatial']['images']['lowres'] = gray_rgb
+
+with mpl.rc_context({'figure.figsize': (12, 6)}):
+    fig2 = plot_spatial(
+        adata=adata,
+        color=clust_col,
+        labels=clust_labels,
+        img_key='lowres',
+        show_img=True,
+        style='fast',
+        max_color_quantile=0.992,
+        circle_diameter=3,
+        colorbar_position='right',
+        reorder_cmap=[0, 2, 4, 3]
+    )
+
+for txt in fig2.findobj(mpl.text.Text):
+    txt.set_fontsize(12)
+
+fig2.savefig("P4-W1-gray_bg.svg", format="svg", dpi=600, bbox_inches="tight")
+plt.show()
+
+# restore original background
+adata.uns['spatial']['spatial']['images']['lowres'] = img_original
+
+# single cell type spatial plots
+mpl.rcParams['font.size'] = 18
+mpl.rcParams['svg.fonttype'] = 'none'
+
+clust_labels = ['TNFAIP6+ Fb']
+
+with mpl.rc_context({'axes.facecolor': 'black', 'figure.figsize': [6, 6]}):
+    axes = sc.pl.spatial(
+        adata,
+        cmap='magma',
+        color=clust_labels,
+        title=clust_labels,
+        size=0.092,
+        img_key='lowres',
+        vmin=0,
+        vmax='p99.2',
+        show=False,
+        ncols=len(clust_labels)
+    )
+
+if not isinstance(axes, (list, tuple)):
+    axes = [axes]
+
+for ax in axes:
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    ax.title.set_fontsize(35)
+
+for label in clust_labels:
+    file_name = "P4-W1" + label.replace('+', 'pos').replace(' ', '_') + "_spatial.pdf"
+    plt.savefig(file_name, format="pdf", dpi=600, bbox_inches="tight")
+    print("Saved:", file_name)
+
+plt.show()
