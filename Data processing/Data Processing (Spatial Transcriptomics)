@@ -1,0 +1,128 @@
+# Load libraries
+library(Seurat)
+library(fs)
+library(patchwork)
+library(purrr)
+
+# Set root directory
+# Standard 10× Cell Ranger spatial transcriptomics matrices are stored in this directory, one folder per sample.
+root_dir <- "...../ST data"
+
+# List sample directories
+sample_dirs <- dir_ls(root_dir, type = "directory")
+
+# Function to read one spatial sample
+read_spatial_data <- function(sample_dir) {
+  sample_name <- basename(sample_dir)
+  h5_file <- dir_ls(sample_dir, regexp = "\\.h5$")
+  spatial_dir <- path(sample_dir, "spatial")
+  
+  if (length(h5_file) == 0 || !dir_exists(spatial_dir)) {
+    warning(paste("Missing files in sample:", sample_name))
+    return(NULL)
+  }
+  
+  obj <- Load10X_Spatial(
+    data.dir = sample_dir,
+    filename = basename(h5_file),
+    slice = "spatial"
+  )
+  
+  obj@project.name <- sample_name
+  Idents(obj) <- sample_name
+  obj$orig.ident <- sample_name
+  
+  return(obj)
+}
+
+# Load all samples
+spatial_objects <- list()
+for (d in sample_dirs) {
+  obj <- read_spatial_data(d)
+  if (!is.null(obj)) {
+    spatial_objects[[basename(d)]] <- obj
+  }
+}
+
+# QC per sample
+qc_spatial_sample <- function(obj, sample_name) {
+  cat("\n===== QC for sample:", sample_name, "=====\n")
+  cat("Spots before QC:", ncol(obj), "\n")
+  cat("Genes before QC:", nrow(obj), "\n")
+  
+  # Calculate mitochondrial percentage before removing MT- genes
+  obj[["percent.mt"]] <- PercentageFeatureSet(obj, pattern = "^MT-")
+  
+  # Remove spots with fewer than 100 detected genes
+  obj <- subset(obj, subset = nFeature_Spatial >= 100)
+  
+  # Remove MALAT1, mitochondrial, and hemoglobin genes
+  rm_genes <- grep("^(MALAT1|MT-|HBA|HBB)", rownames(obj), value = TRUE)
+  obj <- subset(obj, features = setdiff(rownames(obj), rm_genes))
+  
+  cat("Spots after QC:", ncol(obj), "\n")
+  cat("Genes after QC:", nrow(obj), "\n")
+  
+  return(obj)
+}
+
+# Apply QC to all samples
+spatial_objects <- imap(spatial_objects, ~ qc_spatial_sample(.x, .y))
+
+# Report total spots and genes after QC
+total_spots <- sum(sapply(spatial_objects, ncol))
+total_genes <- unique(unlist(lapply(spatial_objects, rownames)))
+cat("\n===== Summary after QC =====\n")
+cat("Total high-quality spots:", total_spots, "\n")
+cat("Total reliable genes:", length(total_genes), "\n")
+
+# Per-sample processing
+process_spatial_sample <- function(obj, sample_name) {
+  obj <- SCTransform(obj,
+                     assay = "Spatial",
+                     vars.to.regress = c("nCount_Spatial", "percent.mt"),
+                     verbose = FALSE)
+  
+  obj <- RunPCA(obj, assay = "SCT", verbose = FALSE)
+  
+  elbow_plot <- ElbowPlot(obj, ndims = 20, reduction = "pca")
+  pc.num <- 1:15
+  
+  obj <- FindNeighbors(obj, reduction = "pca", dims = pc.num)
+  obj <- FindClusters(obj, resolution = 0.8, verbose = FALSE)
+  obj <- RunUMAP(obj, reduction = "pca", dims = pc.num)
+  
+  pca_plot <- DimPlot(obj, reduction = "pca", group.by = "seurat_clusters") +
+    ggtitle(paste(sample_name, "PCA"))
+  umap_plot <- DimPlot(obj, reduction = "umap", label = TRUE) +
+    ggtitle(paste(sample_name, "UMAP"))
+  spatial_plot <- SpatialDimPlot(obj, label = TRUE, label.size = 3) +
+    ggtitle(paste(sample_name, "Spatial Clusters"))
+  
+  combined_plot <- (pca_plot + elbow_plot) / (umap_plot + spatial_plot) +
+    plot_layout(heights = c(1, 2))
+  
+  ggsave(file.path(root_dir, paste0(sample_name, "_analysis.pdf")),
+         combined_plot, width = 14, height = 12)
+  
+  return(obj)
+}
+
+# Process each sample
+processed_samples <- imap(spatial_objects, ~ {
+  cat("Processing sample:", .y, "\n")
+  tryCatch({
+    process_spatial_sample(.x, .y)
+  }, error = function(e) {
+    message("Error processing sample ", .y, ": ", e$message)
+    return(NULL)
+  })
+})
+
+# Drop failed samples
+processed_samples <- processed_samples[!sapply(processed_samples, is.null)]
+
+# Save processed objects
+saveRDS(processed_samples, file = file.path(root_dir, "processed_spatial_samples.rds"))
+
+
