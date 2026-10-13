@@ -28,12 +28,14 @@ col <- c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B",
                   "#FFC0CB","#800080","#9370DB","#DDA0DD","#7FFFD4","#00CED1","#AFEEEE")
                   
 # Set working directory
-setwd("E:/H")
+#The 10× sequencing output files (after Cell Ranger processing) are deposited in the directory.
+
+setwd("...:/singlecell")
 dir_name <- list.files()
 names(dir_name) <- dir_name
 
 # Read 10X data from directories
-scRNAlist <- list()
+combined_list <- list()
 for (i in 1:length(dir_name)) {
   counts <- Read10X(data.dir = dir_name[i])
   scRNAlist[[dir_name[i]]] <- CreateSeuratObject(
@@ -43,29 +45,6 @@ for (i in 1:length(dir_name)) {
     min.features = 300
   )
 }
-
-# Read 10X h5 files
-h5_dir <- "E:/"
-h5_files <- list.files(h5_dir, pattern = "\\.h5$", full.names = TRUE)
-if (length(h5_files) != 12) {
-  warning(paste("Found", length(h5_files), "h5 files, expected 12, please check path."))
-}
-
-seurat_list1 <- list()
-for (f in h5_files) {
-  sample_name <- gsub("\\.h5$", "", basename(f))
-  counts <- Read10X_h5(f)
-  obj <- CreateSeuratObject(
-    counts = counts,
-    project = sample_name,
-    min.cells = 3,
-    min.features = 300
-  )
-  obj$sample <- sample_name
-  seurat_list1[[sample_name]] <- obj
-}
-table(All_FB$orig.ident)
-combined_list <- c(seurat_list1, scRNAlist)
 
 # Calculate mitochondrial and hemoglobin percentages
 for (i in 1:length(combined_list)) {
@@ -125,7 +104,7 @@ feature_plot <- FeaturePlot(scRNA_harmony, features = "ACTA2", raster = FALSE)
 # Subset fibroblasts based on cluster IDs
 # Manual cell type annotation was performed by visualizing the expression of marker genes on UMAP plots
 scRNA_FB <- scRNA_harmony[, scRNA_harmony@meta.data$seurat_clusters %in% c(
-  "36","47","4","5","0","45","19","24","26","37","38","52")]
+  "...")]
 
 # Re-process fibroblast subset
 scRNA_FB <- DietSeurat(scRNA_FB, counts = TRUE, data = TRUE)
@@ -201,7 +180,7 @@ convertFormat(
 # turn to python
 # ...
 # ...
-# Read processed h5ad back to Seurat
+# Read processed h5ad (after scANVI) back to Seurat
 library(sceasy)
 library(Seurat)
 All_FB <- convertFormat(
