@@ -1,0 +1,107 @@
+library(reshape2)
+library(tidyr)
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(ggforce) 
+library(ggpubr)
+
+col <- c("#9370DB","#800080","#1F78B4","#B3D88B", "#FF7F00","#64B482","#DDA0DD",
+                  '#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", 
+                  "#00CED1", "#AFEEEE","#FF4500", "#FF6347", "#FFA07A", "#FFD700","#D2691E","#F0E68C","#800080",
+                  "#FFE4B5", "#CD5C5C", "#8B4513", "#A0522D", "#DAA520", "#FFC0CB","#008000", 
+                  "#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1","#FF6347", "#FFA07A","#1F78B4","#B3D88B")
+                  
+load(".../All_FB.Rdata")
+
+Idents(All_FB) <- All_FB$celltype_sanvi
+Cellratio <- prop.table(table(Idents(All_FB), All_FB$orig.ident), margin = 2)
+Cellratio <- as.data.frame(Cellratio)
+
+Cellratio <- Cellratio %>%
+  mutate(Group = case_when(
+    grepl("^K\\d+", Var2) ~ "Keloid",
+    grepl("^HS\\d+", Var2) ~ "Hypertrophic scar",
+    grepl("^NS\\d+", Var2) ~ "Normal Scar",
+    grepl("^S\\d+", Var2) ~ "Normal Skin",
+    grepl("^AWD0\\d+", Var2) ~ "Normal Skin",
+    grepl("^AWD1\\d+", Var2) ~ "Wound day1",
+    grepl("^AWD7\\d+", Var2) ~ "Wound day7",
+    grepl("^AWD30\\d+", Var2) ~ "Wound day30",
+    grepl("^diac\\d+", Var2) ~ "Chronic Wound",
+    grepl("^GSM\\d+", Var2) ~ "Chronic Wound",
+    TRUE ~ as.character(NA)
+  ))
+
+a <- ggplot(Cellratio, aes(Group, Freq, color = Group, fill = Group)) +
+  geom_boxplot(width = 0.8, alpha = 0.2, outlier.fill = NA, outlier.color = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +
+  scale_color_manual(values = col) +
+  scale_fill_manual(values = col) +
+  theme_bw() +
+  labs(y = "Cell ratio", x = "", size = 40) +
+  stat_compare_means(aes(label = after_stat(p.adjust(..p..) < 0.05)),
+                     comparisons = list(),
+                     method = "t.test", bracket.size = 0.001, step.increase = 1,
+                     size = 4, label = "p.signif", vjust = -0.4) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0.05, 0.05)) +
+  facet_wrap(~Var1, nrow = 6, ncol = 4, scales = "fixed") +
+  theme(axis.text = element_text(color = "black", size = 11),
+        axis.line = element_blank(),
+        axis.text.x = element_text(size = 11, angle = 35, vjust = 0.5),
+        axis.text.y = element_text(size = 15),
+        axis.title.y = element_text(size = 11),
+        panel.spacing = unit(2, "lines"),
+        strip.text.x = element_text(size = 11),
+        axis.line.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "none") +
+  scale_x_discrete(limits = c("Normal Skin", "Wound day1", "Wound day7", "Wound day30", "Normal Scar", 
+                              "Hypertrophic scar", "Keloid", "Chronic Wound"))
+
+print(a)
+
+ggsave(".../cellratio.SVg", a, wi = 3.752, he = 3)
+
+
+
+
+
+# Load data
+library(FSA)
+df <- read.csv("cell proportion.csv", row.names = 1)
+
+# Check sample size per group
+cat("Sample size per group:\n")
+print(table(df$Group))
+
+# Cell type columns (excluding the Group column)
+cell_types <- names(df)[-1]
+
+# Kruskal-Wallis test for each cell type, followed by Dunn's post hoc test
+for (ct in cell_types) {
+  cat("\n========== Cell type:", ct, "==========\n")
+  
+  kw_res <- kruskal.test(df[[ct]] ~ df$Group)
+  cat("Kruskal-Wallis p =", format(kw_res$p.value, digits = 4), "\n")
+  
+  if (kw_res$p.value < 0.05) {
+    cat("Significant, running Dunn's post hoc test (Bonferroni):\n")
+    dunn_res <- dunnTest(df[[ct]] ~ df$Group, data = df, method = "bonferroni")
+    sig <- dunn_res$res[dunn_res$res$P.adj < 0.05, ]
+    if (nrow(sig) > 0) {
+      print(sig)
+    } else {
+      cat("    No significant pairwise differences\n")
+    }
+  } else {
+    cat("Not significant, skipping pairwise comparisons\n")
+  }
+}
+
+# Summary of overall p values
+cat("\n========== Overall p values ==========\n")
+p_vals <- sapply(cell_types, function(ct) {
+  kruskal.test(df[[ct]] ~ df$Group)$p.value
+})
+print(p_vals)
