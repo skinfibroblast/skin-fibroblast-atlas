@@ -64,9 +64,9 @@ scRNA_subh <- readRDS(file = "wound.rds")
 {
   group_counts <- table(scRNA_subh@meta.data$sample_group)
   groups_to_subset <- names(group_counts[group_counts >= 900])
-
+  
   selected_cells <- c()
-
+  
   for (group in groups_to_subset) {
     group_cells <- rownames(scRNA_subh@meta.data[scRNA_subh@meta.data$sample_group == group, ])
     sampled_cells <- sample(group_cells, 900)
@@ -74,7 +74,7 @@ scRNA_subh <- readRDS(file = "wound.rds")
   }
   scRNA_subh <- subset(scRNA_subh, cells = selected_cells)
   count_table<-table(scRNA_subh@meta.data[,"sample_group"],scRNA_subh@meta.data[,"celltype"])
-
+  
   Cellratio <- as.data.frame(count_table)
   Cellratio$Var2 <- factor(Cellratio$Var2, levels = c( "TNFAIP6+ Fb", "MMP1+ Fb","CTHRC1+ Fb", "PI16+ Fb", "CCL19+ Fb"))
   p3 <- ggplot(Cellratio, aes(x = Var2, y = Freq, fill = Var1)) +
@@ -100,7 +100,7 @@ scRNA_subh <- readRDS(file = "wound.rds")
 }
 
 
-#Figure 6D-E
+#Figure 6E-F
 {
   sim <- readRDS(file = "slingshots_acute_wound.rds")
   sds <- SlingshotDataSet(sim)
@@ -111,6 +111,26 @@ scRNA_subh <- readRDS(file = "wound.rds")
       mutate(lineage = i)
   }) %>% bind_rows()
   
+  # extract UMAP from sim
+  umap_data <- as.data.frame(reducedDims(sim)$UMAP)
+  colnames(umap_data) <- c("UMAP1", "UMAP2")
+  umap_data$cell_id <- colnames(sim)
+  
+  # pseudotime color for lineage 7
+  colors <- colorRampPalette(brewer.pal(11, 'Spectral')[-6])(100)
+  plotcol <- colors[cut(sim$slingPseudotime_7, breaks = 100)]
+  plotcol[is.na(plotcol)] <- "lightgrey"
+    umap_data$color <- plotcol
+    
+    # lineage curves
+    lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
+      curve_data <- slingCurves(sds)[[i]]
+      as.data.frame(curve_data$s) %>% 
+        setNames(c("UMAP1", "UMAP2")) %>%
+        mutate(lineage = i)
+    }) %>% bind_rows()
+    
+    
   p <- ggplot(umap_data, aes(x = UMAP1, y = UMAP2)) +
     geom_point(aes(color = I(color)), size = 1.5, alpha = 0.8)  +
     geom_path(data = lineage_data, aes(x = UMAP1, y = UMAP2, group = lineage, 
@@ -138,14 +158,14 @@ scRNA_subh <- readRDS(file = "wound.rds")
   
 }
 
-#Figure 6F
+#Figure 6G
 {
   pbmc3k <- readRDS(file = "acute_wound_sample data.rds")
   celltype=read.csv('celltype_4-WOUND.csv')
   
   pbmc3k@meta.data$celltype2<-pbmc3k@meta.data$celltype
   pbmc3k@meta.data$celltype = "NA"
- 
+  
   for(i in 1:nrow(celltype)){
     pbmc3k@meta.data[which(pbmc3k@meta.data$celltype2 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
   
@@ -161,17 +181,17 @@ scRNA_subh <- readRDS(file = "wound.rds")
       name = pathway_name
     )
   }
-
+  
   score_columns <- names(pbmc3k@meta.data)
   score_columns <- gsub("1$", "", score_columns)
   names(pbmc3k@meta.data) <- score_columns
   
   data_to_plot <- pbmc3k@meta.data[, c("celltype", names(pathways))]
-
+  
   long_data <- pivot_longer(data_to_plot, cols = -celltype, names_to = "Pathway", values_to = "Score")
   subset_data <- long_data %>%
     filter(Pathway == "inflammation")
-
+  
   {
     avg_scores_by_celltype <- aggregate(Score ~ celltype, data = subset_data, FUN = mean)
     
@@ -201,7 +221,7 @@ scRNA_subh <- readRDS(file = "wound.rds")
   ggsave(file="Figure6/violin.svg",s,width =5,height = 3)
 }
 
-#Figure 6G
+#Figure 6H
 {
   deg<-read.csv("scANVI_celltype-DEG.csv")
   selected_rows <- deg[deg$cluster %in% c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb", "CTHRC1+ Fb",  "PI16+ Fb"), ]
@@ -240,13 +260,13 @@ scRNA_subh <- readRDS(file = "wound.rds")
   
 }
 
-#Figure 6H
+#Figure 6I
 {
   pbmc3k <- readRDS(file = "acute_wound_sample data.rds")
   table(pbmc3k$celltype)
   group.by <- pbmc3k$celltype
   group.by <- factor(group.by, levels = c("CCL19+ Fb","TNFAIP6+ Fb", "MMP1+ Fb","LRRC15+ Fb","PI16+ Fb")) # 按照特定的顺序排序
-
+  
   pbmc3k$celltype <- group.by
   geneset<-c("TNFAIP6","TNFAIP3","TNFAIP2","CXCL1","CXCL2","CXCL3","CXCL5","CXCL6","CXCL8","CXCL13","CXCL14",
              "IL1B", "IL6","IL11","IL24","ICAM1","NFKB1","NFKBIA","CCL3","CCL11","CCL20",
@@ -260,7 +280,7 @@ scRNA_subh <- readRDS(file = "wound.rds")
   data <- t(scale(t(ave)))
   font2 <- 8
   data_transposed <- t(data)
-
+  
   p <- pheatmap(data_transposed,
                 fontsize = font2,
                 cellwidth = font2 + 2,
@@ -272,21 +292,13 @@ scRNA_subh <- readRDS(file = "wound.rds")
 }
 
 
-#Figure 6J
+#Figure 6j
 {
-
+  
   df <- readRDS(file = "acute wound TF.rds")
 
   n_tfs <- 200
-  df <- t(as.matrix(pbmc3k@assays$tfsulm@data)) %>%
-    as.data.frame() %>%
-    mutate(cluster = Idents(pbmc3k)) %>%
-    pivot_longer(cols = -cluster, 
-                 names_to = "source", 
-                 values_to = "score") %>% 
-    group_by(cluster, source) %>% 
-    summarise(mean = mean(score))
-  
+
   tfs <- df %>%
     group_by(source) %>%
     summarise(std = sd(mean)) %>%
@@ -327,14 +339,14 @@ scRNA_subh <- readRDS(file = "wound.rds")
   ggsave("Figure6/TFs.svg", plot = a, width = 3.5, height =7)
 }
 
-#Figure S6A
+#Figure S6a
 {
   top_hvg <- c("GEM", "TNFAIP6") 
   a <- 0.5
   {
     cell_types <- c("S")  
     output_dir <- "Figure5" 
-  
+    
     if (!require("MASS", character.only = TRUE)) {
       install.packages("MASS", dependencies = TRUE)
       library(MASS, character.only = TRUE)
@@ -370,7 +382,7 @@ scRNA_subh <- readRDS(file = "wound.rds")
       if (nrow(df) == 0 || ncol(df) < 3) {
         stop("warning: ")
       }
-
+      
       expr_cols <- df[, 2:(1+length(top_hvg)), drop = FALSE]  
       if (nrow(expr_cols) == 0 || ncol(expr_cols) != length(top_hvg)) {
         stop("warning: ")
@@ -456,7 +468,7 @@ scRNA_subh <- readRDS(file = "wound.rds")
         colors <- uniform_gradient(20)
         
         p <- ggplot(df1, aes_string(x = gene_x, y = gene_y))
-
+        
         if (has_density && length(top_hvg) == 2) {
           p <- p + 
             geom_raster(
