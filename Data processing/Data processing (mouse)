@@ -1,0 +1,173 @@
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer) 
+library(ggplot2)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(RColorBrewer)
+library(Nebulosa)
+library(scCustomize)
+library(Seurat)
+library(reticulate)
+library(devtools)
+library(nichenetr)
+library(Seurat)
+library(SeuratObject)
+library(tidyverse)
+library(scDblFinder)
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B", "#FF7F00","#64B482","#DDA0DD",
+                '#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4",
+                "#00CED1", "#AFEEEE")
+###### re-analyze
+
+library(Seurat)
+setwd("E:\\H\\keloid\\data\\K-HC-NC-S\\new\\HS\\a\\NEW\\新建文件夹 (2)\\Figure7\\2\\NEW\\GSE277998_RAW")
+# list sample folders
+dir_name <- list.files()
+dir_name
+names(dir_name)<-list.files()
+dir_name
+
+scRNAlist <- list()
+for (i in 1:length(dir_name)) {
+  # read 10x data
+  counts_list <- Read10X(data.dir = dir_name[i])
+  
+  # extract count matrix
+  counts <- counts_list[[1]]
+  
+  # ensure cell names
+  if (is.null(colnames(counts))) {
+    colnames(counts) <- paste0("Cell_", 1:ncol(counts))
+  }
+  
+  # create Seurat object
+  scRNAlist[[i]] <- CreateSeuratObject(
+    counts = counts,
+    min.cells = 3,
+    min.features = 300,
+    project = dir_name[i]
+  )
+}
+
+# calculate MT and HB percentages
+for(i in 1:length(scRNAlist)){
+  sc <- scRNAlist[[i]]
+  sc[["mt_percent"]] <- PercentageFeatureSet(sc, pattern = "^MT-")
+  HB_genes <- c("HBA1","HBA2","HBB","HBD","HBE1","HBG1","HBG2","HBM","HBQ1","HBZ")
+  HB_m <- match(HB_genes, rownames(sc@assays$RNA))
+  HB_genes <- rownames(sc@assays$RNA)[HB_m] 
+  HB_genes <- HB_genes[!is.na(HB_genes)] 
+  sc[["HB_percent"]] <- PercentageFeatureSet(sc, features=HB_genes) 
+  scRNAlist[[i]] <- sc
+  rm(sc)
+}
+# filter cells
+scRNAlist <- lapply(X = scRNAlist, FUN = function(x){
+  x <- subset(x, 
+              subset = nFeature_RNA > 300 & nFeature_RNA < 7000 & 
+                mt_percent < 20 & 
+                HB_percent < 3 & 
+                nCount_RNA < quantile(nCount_RNA,0.97) & 
+                nCount_RNA > 1000)})
+
+
+
+# doublet detection
+scRNAlist_clean <- lapply(scRNAlist, function(seu) {
+  # convert to SCE
+  sce <- as.SingleCellExperiment(seu)
+  
+  # run scDblFinder
+  sce <- scDblFinder(sce) 
+  
+  # keep singlets
+  sce <- sce[, sce$scDblFinder.class == "singlet"]
+  
+  # convert back to Seurat
+  seu_clean <- as.Seurat(sce)
+  
+  return(seu_clean)
+})
+
+# merge samples
+scRNAlist <- merge(scRNAlist_clean[[1]], 
+                   y = scRNAlist_clean[-1], 
+                   add.cell.ids = names(scRNAlist_clean),
+                   project = "mus_cell")
+
+
+
+# HVG selection & PCA
+table(scRNAlist[[]]$orig.ident)
+
+scRNAlist <- NormalizeData(scRNAlist) %>% 
+  FindVariableFeatures(selection.method = "vst",nfeatures = 3000) %>% 
+  ScaleData() %>% 
+  RunPCA(npcs = 30, verbose = T)
+
+# elbow plot
+ElbowPlot(scRNAlist,ndims = 30)
+
+# batch correction
+scRNAlist <- RunHarmony(scRNAlist, group.by.vars = "orig.ident")
+# cluster
+scRNAlist <- FindNeighbors(scRNAlist, reduction = "harmony", 
+                           dims = 1:30) %>% FindClusters(resolution = 1)
+# umap/tsne
+scRNAlist <- RunTSNE(scRNAlist, reduction = "harmony", dims = 1:30)
+scRNAlist <- RunUMAP(scRNAlist, reduction = "harmony", dims = 1:30)
+
+p1<-DimPlot(scRNAlist,reduction="umap",group.by="orig.ident",raster=FALSE,cols = col);p1
+p2<-DimPlot(scRNAlist,reduction="umap",group.by="seurat_clusters",raster=FALSE,cols = col,label = T);p2             
+
+p <- DotPlot(scRNAlist, group.by = "seurat_clusters",
+             features = "Col3a1","Col1a1,"Col1a2","Pgfra", 
+             dot.scale = 10) + 
+  RotatedAxis() +
+  scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
+  labs(title = "cluster markers", y = "", x = "");p
+  
+# extract fibroblasts by marker genes
+scRNA_rat_fb= scRNAlist[,scRNAlist@meta.data$seurat_clusters %in% c(".....")]
+
+scRNA_rat_fb <- NormalizeData(scRNA_rat_fb) %>% 
+  FindVariableFeatures(selection.method = "vst",nfeatures = 3000) %>% 
+  ScaleData() %>% 
+  RunPCA(npcs = 30, verbose = T)
+
+# elbow plot
+ElbowPlot(scRNA_rat_fb,ndims = 30)
+
+# batch correction
+scRNA_rat_fb <- RunHarmony(scRNA_rat_fb, group.by.vars = "orig.ident")
+# cluster
+scRNA_rat_fb <- FindNeighbors(scRNA_rat_fb, reduction = "harmony", 
+                           dims = 1:30) %>% FindClusters(resolution = 1)
+# umap/tsne
+scRNA_rat_fb <- RunTSNE(scRNA_rat_fb, reduction = "harmony", dims = 1:30)
+scRNA_rat_fb <- RunUMAP(scRNA_rat_fb, reduction = "harmony", dims = 1:30)
+
+p1<-DimPlot(scRNA_rat_fb,reduction="umap",group.by="orig.ident",raster=FALSE,cols = col);p1
+
+# find marker genes
+cluster_markers <- FindAllMarkers(
+  object = scRNA_rat_fb,
+  test.use = "wilcox",
+  only.pos = TRUE,
+  logfc.threshold = 0.25
+)
+save(scRNA_rat_fb,scRNAlist,file="mouse_data.Rdata")
