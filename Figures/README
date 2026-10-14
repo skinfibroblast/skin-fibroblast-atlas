@@ -1,1 +1,2 @@
-This folder contains the R code for each figure. The processed data used can be downloaded from the "sample data" folder in the parent directory.
+This folder contains the R code for each figure. 
+With the exception of some large datasets deposited in figshare, most of the processed data used are available for download from the "sample data" folder in the parent directory.
