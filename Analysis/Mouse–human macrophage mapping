@@ -1,0 +1,129 @@
+# Macrophage analysis
+load("mouse_data.Rdata")
+tsne_integrated2 <- DimPlot(scRNAlist, reduction = "umap", label = TRUE);tsne_integrated2
+
+feature_plot <- FeaturePlot(scRNAlist,
+                            features = "Cd68");feature_plot
+
+tsne_integrated2 <- DimPlot(scRNAlist,reduction = "umap",label = TRUE,
+                            group.by = "seurat_clusters");tsne_integrated2
+
+# Extract macrophages by Cd68
+scRNA_mus_MC= scRNAlist[,scRNAlist@meta.data$seurat_clusters %in% c("...")]
+
+## HVG selection and dimensionality reduction
+table(scRNA_mus_MC[[]]$orig.ident)
+
+scRNA_mus_MC <- NormalizeData(scRNA_mus_MC) %>% 
+  FindVariableFeatures(selection.method = "vst",nfeatures = 3000) %>% 
+  ScaleData() %>% 
+  RunPCA(npcs = 30, verbose = T)
+
+## Batch integration
+scRNA_mus_MC <- RunHarmony(scRNA_mus_MC, group.by.vars = c("orig.ident"))
+
+## Clustering
+scRNA_mus_MC <- FindNeighbors(scRNA_mus_MC, reduction = "harmony", dims = 1:30) %>% FindClusters(resolution = 0.5)
+# UMAP/tSNE
+scRNA_mus_MC <- RunTSNE(scRNA_mus_MC, reduction = "harmony", dims = 1:30)
+scRNA_mus_MC <- RunUMAP(scRNA_mus_MC, reduction = "harmony", dims = 1:30)
+
+tsne_integrated2 <- DimPlot(scRNA_mus_MC, 
+                            reduction = "umap",
+                            label = TRUE);tsne_integrated2
+                            
+# Macrophage subcluster markers
+cluster_markers <- FindAllMarkers(
+  object = scRNA_rat_fb,
+  test.use = "wilcox",
+  only.pos = TRUE,
+  logfc.threshold = 0.25
+)
+# Annotate subclusters
+celltype=read.csv('celltype-小鼠巨噬细胞双细胞去除-细胞最新.csv')
+## Write to metadata
+# Add empty celltype column
+scRNA_mus_MC@meta.data$celltype = "NA"
+# Assign labels
+for(i in 1:nrow(celltype)){
+  scRNA_mus_MC@meta.data[which(scRNA_mus_MC@meta.data$seurat_clusters == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+table(scRNA_mus_MC$celltype)
+
+
+
+# Cell ratio over time
+
+Idents(scRNA_mus_MC)<-scRNA_mus_MC$celltype
+Cellratio <- prop.table(table(Idents(scRNA_mus_MC), scRNA_mus_MC$orig.ident), margin = 2)
+Cellratio <- as.data.frame(Cellratio)
+Cellratio$Var2 <- factor(Cellratio$Var2, levels = c("W0","W1","W2","W4", "W7"))
+
+a <- ggplot(Cellratio, aes(x = Var2, y = Freq, group = Var1, color = Var1)) +
+  stat_summary(fun = mean, geom = "line", size = 1) +
+  stat_summary(fun = mean, geom = "point", size = 2.5) +
+  geom_point(aes(color = Var1), alpha = 0.3, position = position_jitter(width = 0.1)) +
+  scale_color_manual(values = col) +
+  theme_bw() +
+  labs(y = "Cell ratio", x = "", title = "Cell ratio changes over time") +
+  scale_y_continuous(limits = c(0,0.8), expand = c(0.05, 0.05)) +
+  facet_wrap(~Var1, nrow = 5, ncol = 4, scales = "fixed") +
+  theme(
+    axis.text = element_text(color = "black", size = 11),
+    axis.text.x = element_text(size = 15, angle = 0, vjust = 0.5),
+    axis.text.y = element_text(size = 15),
+    axis.title.y = element_text(size = 11),
+    panel.spacing = unit(2, "lines"),
+    strip.text.x = element_text(size = 11),
+    axis.line.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    legend.position = "bottom", 
+    legend.title = element_blank(), 
+    legend.text = element_text(size = 15),
+    plot.title = element_text(size = 14, hjust = 0.5))
+
+print(a)
+ggsave("cellratio.svg",a,wi=10,he=3.5)
+
+
+# Human–mouse macrophage mapping
+marker_gene <- read.csv('human-mc-celltype-DEG.csv', row.names = 1)
+marker_gene$genes <- sapply(marker_gene$gene, function(x) {
+  paste0(toupper(substr(x, 1, 1)), tolower(substr(x, 2, nchar(x))))
+})
+head(marker_gene[, c("gene", "genes")], 10)
+
+top50_genes <- marker_gene %>%
+  group_by(cluster) %>%              
+  arrange(desc(avg_log2FC)) %>%      
+  #filter(avg_log2FC > 0.7) %>%
+  slice_head(n = 40) %>%             
+  ungroup()
+
+gene_list <- top50_genes %>%
+  group_by(cluster) %>%
+  summarise(genes = list(genes)) %>%
+  deframe()
+
+gene_list
+
+rownames(scRNA_mus_MC@assays$RNA) <- toupper(rownames(scRNA_mus_MC@assays$RNA))
+
+head(rownames(scRNA_mus_MC@assays$RNA), 10)
+scRNA_mus_MC <- AddModuleScore(
+  object = scRNA_mus_MC,
+  features = gene_list,
+  ctrl = 100,
+  name = names(gene_list),
+  assay = "RNA"               
+)
+
+colnames(scRNA_mus_MC@meta.data)
+p <- DotPlot(scRNA_mus_MC, group.by = "celltype",
+             features = c("CCR7+1", "CD1C+2", "CD206+3", "CD207+4", "CLEC9A+5", "HLA-DQ+6", "HMOX1+7", 
+                          "IL1B+8", "LTB+9","S100A7+10", "S100A8+11", "SPP1+12","TM4SF1+13"), 
+             dot.scale = 10) + 
+  RotatedAxis() +
+  scale_colour_gradientn(colours = colorRampPalette(c("navy", "white", "firebrick3"))(100)) +
+  labs(title = "cluster markers", y = "", x = "");p
+
+ggsave(file="hum-rat-score.svg",p,width =8.5,height = 6)
