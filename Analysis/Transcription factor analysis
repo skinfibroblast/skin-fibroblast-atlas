@@ -1,0 +1,90 @@
+load(All_FB.Rdata)
+# Only needed for data handling and plotting
+  Idents(All_FB)<-All_FB$celltype
+  CellsClusters <- data.frame(Cell = names(Idents(All_FB)), 
+                              CellType = as.character(Idents(All_FB)),
+                              stringsAsFactors = FALSE)
+  head(CellsClusters)
+  
+  All_FB <- progeny(All_FB, scale=FALSE, organism="Human",
+                    top=500, perm=1, return_assay = TRUE) #"Human" Mouse
+  All_FB@assays$progeny 
+  All_FB@assays$progeny %>%dim()
+  All_FB@assays$progeny@data[,1:3]
+  assays <- Seurat::ScaleData(All_FB, assay = "progeny")
+  
+  progeny_scores_df <- 
+    as.data.frame(t(GetAssayData(assays, slot = "scale.data", 
+                                 assay = "progeny"))) %>%
+    rownames_to_column("Cell") %>%
+    gather(Pathway, Activity, -Cell) 
+  dim(progeny_scores_df)
+  
+  progeny_scores_df <- inner_join(progeny_scores_df, CellsClusters)
+  
+  summarized_progeny_scores <- progeny_scores_df %>% 
+    group_by(Pathway, CellType) %>%
+    summarise(avg = mean(Activity), std = sd(Activity))
+  dim(summarized_progeny_scores)
+  
+  summarized_progeny_scores_df <- summarized_progeny_scores %>%
+    dplyr::select(-std) %>%   
+    spread(Pathway, avg) %>%
+    data.frame(row.names = 1, check.names = FALSE, stringsAsFactors = FALSE) 
+  
+  paletteLength = 100
+  myColor = colorRampPalette(c("Darkblue", "white","red"))(paletteLength)
+  progenyBreaks = c(seq(min(summarized_progeny_scores_df), 0, 
+                        length.out=ceiling(paletteLength/2) + 1),
+                    seq(max(summarized_progeny_scores_df)/paletteLength, 
+                        max(summarized_progeny_scores_df), 
+                        length.out=floor(paletteLength/2)))
+  row_order <- rownames(summarized_progeny_scores_df)
+  
+  summarized_progeny_scores_df_ordered <- summarized_progeny_scores_df[row_order, , drop = FALSE]
+  
+  bangbangtang<-summarized_progeny_scores_df_ordered[,c("TGFb", "PI3K", "WNT", "EGFR", "Hypoxia", "MAPK",
+                                                        "NFkB","TNFa","VEGF", "JAK-STAT", "p53")]
+  num_rows <- nrow(bangbangtang)
+  
+  selected_col <- col[1:num_rows]
+  bangbangtang$col <- selected_col
+  cell_order <- rownames(bangbangtang)
+  
+  gene_order <- c("TGFb", "PI3K", "WNT", "EGFR", "Hypoxia", "MAPK", "NFkB", "TNFa",
+                  "VEGF", "JAK-STAT", "p53")
+  
+  data_long <- bangbangtang %>%
+    tibble::rownames_to_column("Cell") %>%
+    pivot_longer(cols = -c(Cell, col),  
+                 names_to = "Gene", 
+                 values_to = "Score")%>%
+    mutate(Cell = factor(Cell, levels = rev(cell_order)),
+           Gene = factor(Gene, levels = gene_order))
+  
+  a<-ggplot(data_long, aes(x = Score, y = reorder(Cell, Score))) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.5)+
+    geom_segment(aes(x = 0, xend = Score, y = Cell, yend = Cell, color = col), 
+                 linewidth = 1) +  
+    geom_point(aes(color = col), size = 3) +
+    facet_wrap(~ Gene, scales = "free_x", nrow = 1) +
+    labs(x = "Gene Score", y = "Cell", 
+         title = "Gene Scores Across Cells",
+         color = "Group") + 
+    theme_minimal() +
+    theme(
+      axis.title.x = element_text(size = 15),
+      axis.title.y = element_text(size = 15),
+      axis.text.x = element_text(size = 10),
+      axis.text.y = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 15, face = "bold"),
+      
+      legend.position = "right",  
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 14),
+      
+      panel.spacing = unit(1, "lines"),
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 1),
+      strip.background = element_rect(colour = "black", fill = "gray90", linewidth = 1)
+    );a 
