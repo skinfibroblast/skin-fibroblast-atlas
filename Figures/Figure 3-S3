@@ -61,60 +61,11 @@ library(enrichplot)
 
 col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B","#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
 col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
-All_cell <- readRDS("All_cell.rds")
-All_FB <- readRDS("All_fb.rds")
-load("Radio.Rdata")
+load("...\\All_FB.Rdata")
+load("...\\Radio.Rdata")
 
-#Figure 3B
+#Figure 3b
 {
-  markers=read.csv('Figure3/markers_scarvsskin-DEG.csv')
-
-  markers <- markers %>%
-    mutate(Difference = pct.1 - pct.2) %>% 
-    rownames_to_column("gene")
-  
-  markers <- markers %>%
-    mutate(change = case_when(
-      Difference > 0 & avg_log2FC > 0.5 ~ "up",
-      Difference < 0 & avg_log2FC < -0.5 ~ "down",
-      TRUE ~ "ns"  
-    ))
-  
-  markers$genes<-markers$X
-
-  ggplot(markers, aes(x=Difference, y=avg_log2FC, color = change)) + 
-    geom_point(size=1.2) + 
-    scale_color_manual('change',labels=c(paste0("down(",table(markers$change)[[1]],')'),
-                                         'ns',
-                                         paste0("up(",table(markers$change)[[3]],')' )),
-                       values=c("#0d1b46", "grey","tomato" ))+
-    geom_label_repel(data=subset(markers, 
-                                 avg_log2FC >= 1 & Difference >= 0.2 & p_val_adj <= 0.05), 
-                     aes(label=genes), 
-                     color="tomato", 
-                     segment.colour = "tomato",
-                     label.padding = 0.2, 
-                     segment.size = 0.3, 
-                     size=4,
-                     max.overlaps = 30,
-                     force = 100, 
-                     direction = "both") + 
-    geom_label_repel(data=subset(markers, 
-                                 avg_log2FC <= -1 & Difference <= -0.1 & p_val_adj <= 0.05), 
-                     aes(label=genes), 
-                     label.padding = 0.2, 
-                     color="#0d1b46",
-                     segment.colour = "#0d1b46",
-                     segment.size = 0.3, size=4,
-                     max.overlaps = 20,
-                     force = 100, 
-                     direction = "both") + 
-    geom_vline(xintercept = 0,linetype = 2) +
-    geom_hline(yintercept = 0,linetype = 2) +
-    labs(x="△ Percentage difference",y="Log-Fold change") + 
-    theme_bw()
-  ggsave("Figure3/markers_LAMP5.svg",width = 6.5,height = 3)  
-  
   ###GSEA
   cluster_markers_samplegroup<-read.csv("Figure3/markers_scarvsskin-DEG.csv",row.names = 1)
   
@@ -126,7 +77,7 @@ load("Radio.Rdata")
   names(gene_list) <- rownames(degs_data)
   gene_list <- sort(gene_list, decreasing = TRUE)
   msig_h <- msigdbr(species = "Homo sapiens", category = "H") 
-
+  
   gsea_res <- GSEA(gene_list,
                    TERM2GENE = msig_h[, c("gs_name", "gene_symbol")],
                    pvalueCutoff = 1)  
@@ -135,20 +86,20 @@ load("Radio.Rdata")
                pvalue_table = T,
                base_size = 20,
                color =col);a
-
+  
   pathway<-gsea_res@result
   write.csv(pathway, "Figure3/GSEA.csv", row.names = TRUE)
   ggsave("Figure3/basic_plot_GSEA.svg",a, height = 8, width = 6)
   
 }
 
-#Figure 3D
+#Figure 3C
 {
   deg<-read.csv("scANVI_celltype-DEG.csv")
   selected_rows <- deg[deg$cluster %in% c("LRRC15+ Fb", "LAMP5+ Fb", "CTHRC1+ Fb", "CCL19+ Fb", "PI16+ Fb"), ]
   desired_order <- c("CCL19+ Fb", "PI16+ Fb", "CTHRC1+ Fb", "LAMP5+ Fb", "LRRC15+ Fb")
   selected_rows$cluster<-factor(selected_rows$cluster, levels = desired_order, ordered = TRUE)
-
+  
   gene_df <- selected_rows %>%
     group_by(gene) %>%
     slice_max(avg_log2FC, n = 1, with_ties = FALSE) %>% 
@@ -158,10 +109,10 @@ load("Radio.Rdata")
     slice_head(n = 10) %>%  
     ungroup()
   gene_df<-gene_df$gene
-
+  
   scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("CTHRC1+ Fb","LAMP5+ Fb",
                                                       "LRRC15+ Fb","CCL19+ Fb","PI16+ Fb")]
-
+  
   Idents(scRNA_sub)<-scRNA_sub$celltype
   Idents(scRNA_sub) <- factor(scRNA_sub@active.ident, levels = desired_order, ordered = TRUE)
   
@@ -169,7 +120,7 @@ load("Radio.Rdata")
                features = gene_df, 
                dot.scale = 8) + 
     RotatedAxis() +
-
+    
     geom_point(aes(fill = avg.exp.scaled, size = pct.exp), shape = 21, colour = "black") +
     scale_fill_gradientn(colours = colorRampPalette(c("#1F78B4","#FFFF99","#C73E3A"))(100)) +
     labs(title = "cluster markers", y = "", x = "") +
@@ -177,16 +128,30 @@ load("Radio.Rdata")
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 28),
           axis.text.y = element_text(size = 22),
           legend.text = element_text(size = 20));p
-
+  
   ggsave("Figure3/dotplot.svg",p, width = 7, height =14)
 }
 
-#Figure 3E
+#Figure 3D
 {
-    sim <- readRDS("slingshot_sample_data1.rds")
-    sce_tnfaip6 <- readRDS("slingshot_sample_data2.rds")
-
-    sds <- SlingshotDataSet(sim)
+ 
+  sim <- readRDS("slingshot_sample_data1.rds")
+  sce_tnfaip6 <- readRDS("slingshot_sample_data2.rds")
+  
+  sds <- SlingshotDataSet(sim)
+  
+  # extract UMAP from sim
+  umap_data <- as.data.frame(reducedDims(sim)$UMAP)
+  colnames(umap_data) <- c("UMAP1", "UMAP2")
+  umap_data$cell_id <- colnames(sim)
+  
+  # pseudotime color for lineage 7
+  colors <- colorRampPalette(brewer.pal(11, 'Spectral')[-6])(100)
+  plotcol <- colors[cut(sim$slingPseudotime_7, breaks = 100)]
+  plotcol[is.na(plotcol)] <- "lightgrey"
+  umap_data$color <- plotcol
+    
+    # lineage curves
     lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
       curve_data <- slingCurves(sds)[[i]]
       as.data.frame(curve_data$s) %>% 
@@ -195,14 +160,14 @@ load("Radio.Rdata")
     }) %>% bind_rows()
     
     p <- ggplot(umap_data, aes(x = UMAP1, y = UMAP2)) +
-      geom_point(aes(color = I(color)), size = 1.5, alpha = 0.8)  +
+      geom_point(aes(color = I(color)), size = 1.5, alpha = 0.8) +
       geom_path(data = lineage_data, aes(x = UMAP1, y = UMAP2, group = lineage, 
-                                           color = factor(lineage)), size = 1.5) +
+                                         color = factor(lineage)), linewidth = 1.5) +
       scale_color_manual(name = "Lineages", 
-                          values = c(brewer.pal(8, "Set1"), "#999999"),
-                          labels = paste0("Lineage ", 1:8)) +
-    theme_minimal() +
-    theme(
+                         values = c(brewer.pal(8, "Set1"), "#999999"),
+                         labels = paste0("Lineage ", 1:8)) +
+      theme_minimal() +
+      theme(
         panel.grid = element_blank(),
         axis.text = element_text(size = 10),
         axis.title = element_text(size = 12, face = "bold"),
@@ -210,38 +175,19 @@ load("Radio.Rdata")
         legend.title = element_text(size = 12, face = "bold"),
         legend.text = element_text(size = 10),
         plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +
-    labs(title = "Slingshot Trajectory Visualization",
-            x = "UMAP 1",
-            y = "UMAP 2") +
-    coord_fixed()
+      labs(title = "Slingshot Trajectory Visualization",
+           x = "UMAP 1",
+           y = "UMAP 2") +
+      coord_fixed()
     
     print(p)
-    
-    ggsave(filename='figure3/slingPseudotime_6.SVG',p,width=9,height=5)
-    
-  ###########################################
-  ###########################################
-    sce<-sce_tnfaip6
-    p <- ggscatter(data = plt_data,
-                      x = 'Pseudotime',
-                      y = "EPAS1",
-                      color = 'col',
-                      size = 2,
-                      alpha=1) +
-        geom_smooth(se = FALSE, color = 'orange') +
-        theme_bw() +
-        scale_color_manual(values = mycolors) +
-        theme(
-          legend.position = 'none',
-          axis.text = element_text(size = 25), 
-          axis.title = element_text(size = 25));p
-      
-    ggsave(filename='figure3/COL3A1-.svg',p,width=5.5,height=2.5)
+  
+  ggsave(filename='figure3/slingPseudotime_6.SVG',p,width=9,height=5)
 
 }
 
 
-#Figure 3H
+#Figure 3g
 {
   #(i)
   genes <- c( 'COL1A1', 'COL1A2', 'COL3A1','COL5A1', 'COL5A2', 'COL6A2', 'COL6A1','COL6A3',  'COL12A1',
@@ -277,11 +223,11 @@ load("Radio.Rdata")
   plot_data <- cbind(expr_matrix, celltype = metadata$celltype)
   plot_data_long <- plot_data %>%
     pivot_longer(cols = -celltype, names_to = "gene", values_to = "expression")
-
+  
   plot_data_long$gene <- factor(plot_data_long$gene, levels = genes_of_interest)
   plot_data_long$celltype <- factor(plot_data_long$celltype, 
                                     levels = c("CTHRC1+ Fb", "LRRC15+ Fb", "LAMP5+ Fb"))
-
+  
   stat_test <- plot_data_long %>%
     group_by(gene) %>%
     t_test(expression ~ celltype, ref.group = "CTHRC1+ Fb") %>%
@@ -348,16 +294,16 @@ load("Radio.Rdata")
   
 }
 
-#Figure 3I
+#Figure 3H
 {
   All_FB@assays$RNA@counts[1:2,]
   All_FB <- FindVariableFeatures(All_FB, selection.method = "vst", nfeatures = 10000)
   hvgs <- VariableFeatures(All_FB)
-
+  
   mat <- GetAssayData(All_FB, slot = "data")[hvgs, ]
   mat <- as.matrix(mat)
   net <- get_collectri(organism='human', split_complexes=FALSE)
-
+  
   acts2 <- run_ulm(mat=mat, net=net, .source='source', .target='target',
                    .mor='mor', minsize = 5)
   Idents(All_FB)<-All_FB$celltype
@@ -368,14 +314,14 @@ load("Radio.Rdata")
                 values_from = 'score') %>%
     column_to_rownames('source') %>%
     Seurat::CreateAssayObject(.)
-
+  
   DefaultAssay(object = All_FB) <- "tfsulm"
-
+  
   All_FB <- ScaleData(All_FB)
   All_FB@assays$tfsulm@data <- All_FB@assays$tfsulm@scale.data
   
   n_tfs <- 50
-
+  
   df <- t(as.matrix(All_FB@assays$tfsulm@data)) %>%
     as.data.frame() %>%
     mutate(cluster = Idents(All_FB)) %>%
@@ -391,7 +337,7 @@ load("Radio.Rdata")
     arrange(-abs(std)) %>%
     head(n_tfs) %>%
     pull(source)
-
+  
   top_acts_mat <- df %>%
     filter(source %in% tfs) %>%
     pivot_wider(id_cols = 'cluster', 
@@ -399,17 +345,17 @@ load("Radio.Rdata")
                 values_from = 'mean') %>%
     column_to_rownames('cluster') %>%
     as.matrix()
-
+  
   palette_length = 500
   my_color = colorRampPalette(c("#1F78B4", "white","#C73E3A"))(palette_length)
   my_breaks <- c(seq(-3, 0, length.out=ceiling(palette_length/2) + 1),
                  seq(0.05, 3, length.out=floor(palette_length/2)))
- 
+  
   table(All_FB$celltype)
   colnames_order <- c('CTHRC1+ Fb','LAMP5+ Fb',"LRRC15+ Fb", 'COL4A1+ Fb','MMP1+ Fb',  'CCL19+ Fb', 
                       'TNFAIP6+ Fb', 'PI16+ Fb','AQP1+ Fb','IGKC+ Fb',  'APCDD1+ Fb',
                       'COCH+ Fb','KRT+ Fb',  'IGFBP2+ Fb',  'ANGPTL7+ Fb', 'S100B+ Fb')
-
+  
   top_acts_mat_ordered <- top_acts_mat[colnames_order, , drop = FALSE]
   a <- pheatmap(t(top_acts_mat_ordered), 
                 border_color = NA,
@@ -424,35 +370,35 @@ load("Radio.Rdata")
   ggsave("Figure3\\TF.svg", plot = a, width = 4, height =5.5)
 }
 
-#Figure 3J
+#Figure 3I
 {
   scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("CTHRC1+ Fb","LAMP5+ Fb","LRRC15+ Fb")]
   celltype=read.csv('celltype_PFFbs.csv')
   table(scRNA_sub$celltype)
   scRNA_sub@meta.data$celltype2<-scRNA_sub@meta.data$celltype
   scRNA_sub@meta.data$celltype = "NA"
-
+  
   for(i in 1:nrow(celltype)){
     scRNA_sub@meta.data[which(scRNA_sub@meta.data$celltype2 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
-
+  
   table(scRNA_sub$celltype)
   scRNA_subh = scRNA_sub[,scRNA_sub@meta.data$sample_group  %in% "NS"]
   Idents(scRNA_subh)<-scRNA_subh$celltype
   count_table<-table(scRNA_subh@meta.data[,"celltype"],scRNA_subh@meta.data[,"sample_group"])
-
+  
   count_mtx<-as.data.frame.matrix(count_table)
   count_mtx$cluster<-rownames(count_mtx)
   melt_mtx<-melt(count_mtx)
   melt_mtx$cluster<-as.factor(melt_mtx$cluster)
   cluster_size<-aggregate(value~cluster,data=melt_mtx,FUN=sum)
   colnames(melt_mtx)[2]<-"dataset"
-
+  
   total_cells<-sum(cluster_size$value)
   cluster_size$percent<-round(cluster_size$value/total_cells*100,1)
   cluster_size<-cluster_size[order(-cluster_size$value),]
-
+  
   cluster_size$cluster<-factor(cluster_size$cluster,levels=rev(cluster_size$cluster))
-
+  
   col2<-c("#FFC0CB", "#800080","#9370DB")
   p1 <- ggplot(cluster_size, aes(y = cluster, x = value, fill = cluster)) +
     geom_bar(position = "dodge", stat = "identity") +
@@ -477,7 +423,7 @@ load("Radio.Rdata")
     scale_fill_manual(values = col2) 
   print(p1)
   ggsave("Figure3/cell-ratio-barplot—NS.svg", p1, width=6 ,height=3)
-
+  
   cluster_size <- cluster_size %>%
     mutate(percent = value / sum(value) * 100)
   
@@ -497,7 +443,7 @@ load("Radio.Rdata")
   
 }
 
-#Figure 3L
+#Figure 3K
 {
   # Only needed for data handling and plotting
   Idents(All_FB)<-All_FB$celltype
@@ -526,7 +472,7 @@ load("Radio.Rdata")
     group_by(Pathway, CellType) %>%
     summarise(avg = mean(Activity), std = sd(Activity))
   dim(summarized_progeny_scores)
-
+  
   summarized_progeny_scores_df <- summarized_progeny_scores %>%
     dplyr::select(-std) %>%   
     spread(Pathway, avg) %>%
@@ -540,7 +486,7 @@ load("Radio.Rdata")
                         max(summarized_progeny_scores_df), 
                         length.out=floor(paletteLength/2)))
   row_order <- rownames(summarized_progeny_scores_df)
-
+  
   summarized_progeny_scores_df_ordered <- summarized_progeny_scores_df[row_order, , drop = FALSE]
   
   bangbangtang<-summarized_progeny_scores_df_ordered[,c("TGFb", "PI3K", "WNT", "EGFR", "Hypoxia", "MAPK",
@@ -550,10 +496,10 @@ load("Radio.Rdata")
   selected_col <- col[1:num_rows]
   bangbangtang$col <- selected_col
   cell_order <- rownames(bangbangtang)
-
+  
   gene_order <- c("TGFb", "PI3K", "WNT", "EGFR", "Hypoxia", "MAPK", "NFkB", "TNFa",
                   "VEGF", "JAK-STAT", "p53")
-
+  
   data_long <- bangbangtang %>%
     tibble::rownames_to_column("Cell") %>%
     pivot_longer(cols = -c(Cell, col),  
@@ -561,7 +507,7 @@ load("Radio.Rdata")
                  values_to = "Score")%>%
     mutate(Cell = factor(Cell, levels = rev(cell_order)),
            Gene = factor(Gene, levels = gene_order))
-
+  
   a<-ggplot(data_long, aes(x = Score, y = reorder(Cell, Score))) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.5)+
     geom_segment(aes(x = 0, xend = Score, y = Cell, yend = Cell, color = col), 
@@ -578,17 +524,17 @@ load("Radio.Rdata")
       axis.text.x = element_text(size = 10),
       axis.text.y = element_text(size = 15, face = "bold"),
       strip.text = element_text(size = 15, face = "bold"),
-
+      
       legend.position = "right",  
       legend.text = element_text(size = 12),
       legend.title = element_text(size = 14),
-
+      
       panel.spacing = unit(1, "lines"),
       plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
       panel.border = element_rect(colour = "black", fill = NA, linewidth = 1),
       strip.background = element_rect(colour = "black", fill = "gray90", linewidth = 1)
     );a 
-  }
+}
 
 #Figuer S3A
 {
@@ -599,7 +545,7 @@ load("Radio.Rdata")
     markers <- markers %>%
       mutate(Difference = pct.1 - pct.2) %>%
       filter(!grepl("^MT-", gene))
-
+    
     markers <- markers %>%
       mutate(change = case_when(
         Difference > 0 & avg_log2FC > 0.5 ~ "sig",
@@ -641,7 +587,7 @@ load("Radio.Rdata")
 
 #Figure S3F-K
 {
-
+  
   scRNA_sub= All_FB[,All_FB@meta.data$celltype %in% c("LRRC15+ Fb","LAMP5+ Fb","CTHRC1+ Fb","CCL19+ Fb","PI16+ Fb")]
   
   group.by <- scRNA_sub@meta.data$celltype
@@ -669,7 +615,7 @@ load("Radio.Rdata")
     data <- t(scale(t(ave)))
     font2 <- 8
     data_transposed <- t(data)
-
+    
     p <- pheatmap(data_transposed,
                   fontsize = font2,
                   cellwidth = font2 + 2,
@@ -683,14 +629,14 @@ load("Radio.Rdata")
 
 #Figure S3N-T
 {
-
+  
   marker_sign<-c("PPP1R13L", "GADD45A", "ERBB2", "RRM2B", "CCND1", "TP53I13", "PML", "PTEN", "TP53INP2", "BBC3", "PURPL", "KLLN", "TP53I11", "CDIP1", "JMY", "PIDD1", "TP53INP1", "BAX", "TP53I3", "CDKN2A", "CDKN1A", "MDM2", "TP53")
   ave <-  AverageExpression(scRNA_harmony,assays = "RNA",features=marker_sign,group.by = "sample_group",
                             verbose = T)$RNA
   data <- t(scale(t(ave)))
   font2 <- 8
   data_transposed <- t(data)
-
+  
   h_type <- pheatmap(data_transposed,
                      fontsize = font2,
                      cellwidth = font2 + 2,
@@ -712,7 +658,7 @@ load("Radio.Rdata")
   cat("Number of raw genes:", length(LAMP5_Fb_genes), "\n")
   cat("Number of valid genes in the samples:", length(valid_genes), "\n")
   cat("Absent genes:", paste(setdiff(LAMP5_Fb_genes, valid_genes), collapse = ", "), "\n")
-
+  
   if (length(valid_genes) < 3) {
     stop(paste0("only", length(valid_genes), "genes"))
   }
@@ -733,22 +679,22 @@ load("Radio.Rdata")
     labs(title = "cluster markers", y = "", x = "");p
   
   DEG <- read.csv("scANVI_celltype-DEG.csv")
-
+  
   gene_sets <- DEG %>% 
     filter(avg_log2FC > 0.25) %>% 
     group_by(cluster) %>% 
     slice_head(n = 50) %>%
     summarise(genes = list(gene)) %>% 
     deframe()
-
+  
   scRNA_harmony <- AddModuleScore(
     object = scRNA_harmony,
     features =  features_list,  
     name = "LAMP5+ Fb",                         
     ctrl = 100)
-
+  
   scores <- scRNA_harmony@meta.data[, c("Score_PI161","LAMP5+ Fb1", "Score_LRRC151","Score_PLCG21","orig.ident")]
-
+  
   TP53_expression <- GetAssayData(scRNA_harmony, assay = "RNA", slot = "data")["TP53", ]
   combined_data <- data.frame(scores, TP53_expression = as.numeric(TP53_expression))
   combined_data <- combined_data[combined_data$TP53_expression != 0, ]
@@ -792,7 +738,7 @@ load("Radio.Rdata")
                              rel_heights = c(0.5, 2))
     return(plot_layout)
   }
-
+  
   plot1 <- create_plot("LAMP5..Fb1", "TP53_expression", combined_data);plot1
   ggsave("Figure3/-tp53-lamp5-.pdf",plot1, width = 3, height =3)
   
