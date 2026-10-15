@@ -1,0 +1,268 @@
+library(slingshot)
+library(tradeSeq)
+library(BiocParallel)
+library(SingleCellExperiment)
+library(qs)
+library(tidyverse)
+library(RColorBrewer)
+library(Seurat)
+library(ggplot2)
+library(ggsci)
+library(ggpubr)
+library(patchwork)
+load("All_FB.Rdata")
+# Build SingleCellExperiment
+scale.data <- All_FB@assays$RNA@scale.data
+scale.gene <- rownames(scale.data)
+
+counts <- All_FB@assays$RNA@counts
+counts <- counts[scale.gene, ]
+
+sim <- SingleCellExperiment(assays = List(counts = counts))
+
+umap <- All_FB@reductions$umap@cell.embeddings
+colnames(umap) <- c('UMAP-1', 'UMAP-2')
+reducedDims(sim) <- SimpleList(UMAP = umap)
+
+meta <- All_FB@meta.data
+colData(sim)$sampleId <- meta$orig.ident
+colData(sim)$celltype <- meta$celltype
+rd <- umap
+plot(rd, col = rgb(0, 0, 0, .5), pch = 16, asp = 1)
+
+sim <- slingshot(sim,
+                 clusterLabels = 'celltype',
+                 reducedDim = 'UMAP',
+                 start.clus = "PI16+ Fb",
+                 end.clus = "LRRC15+ Fb"
+)
+
+# Plot trajectory with base R
+{
+  colnames(colData(sim))
+  plot(reducedDims(sim)$UMAP, pch = 16, asp = 1)
+  lines(SlingshotDataSet(sim), lwd = 2, col = brewer.pal(9, "Set1"))
+  legend("right",
+         legend = paste0("lineage", 1:9),
+         col = unique(brewer.pal(9, "Set1")),
+         inset = 0.8,
+         pch = 16)
+}
+
+summary(sim$slingPseudotime_6)
+
+colors <- colorRampPalette(brewer.pal(11, 'Spectral')[-6])(100)
+plotcol <- colors[cut(sim$slingPseudotime_6, breaks = 100)]
+plotcol[is.na(plotcol)] <- "lightgrey"
+  plotcol
+  plot(reducedDims(sim)$UMAP, col = plotcol, pch = 16, asp = 1)
+  lines(SlingshotDataSet(sim), lwd = 2, col = brewer.pal(9, "Set1"))
+  legend("right",
+         legend = paste0("lineage", 1:8),
+         col = unique(brewer.pal(6, "Set1")),
+         inset = 0.8,
+         pch = 16)
+  
+  # ggplot plotting
+  {
+    umap_data <- as.data.frame(reducedDims(sim)$UMAP)
+    colnames(umap_data) <- c("UMAP1", "UMAP2")
+    
+    umap_data$color <- plotcol
+    
+    sds <- SlingshotDataSet(sim)
+    lineage_data <- lapply(1:length(slingCurves(sds)), function(i) {
+      curve_data <- slingCurves(sds)[[i]]
+      as.data.frame(curve_data$s) %>% 
+        setNames(c("UMAP1", "UMAP2")) %>%
+        mutate(lineage = i)
+    }) %>% bind_rows()
+    
+    p <- ggplot(umap_data, aes(x = UMAP1, y = UMAP2)) +
+      geom_point(aes(color = I(color)), size = 1.5, alpha = 0.8) +
+      geom_path(data = lineage_data, aes(x = UMAP1, y = UMAP2, group = lineage, 
+                                         color = factor(lineage)), size = 1.5) +
+      scale_color_manual(name = "Lineages", 
+                         values = c(brewer.pal(8, "Set1"), "#999999"),
+                         labels = paste0("Lineage ", 1:8)) +
+      theme_minimal() +
+      theme(
+        panel.grid = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 12, face = "bold"),
+        legend.position = "right",
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)) +
+      labs(title = "Slingshot Trajectory Visualization",
+           x = "UMAP 1",
+           y = "UMAP 2") +
+      coord_fixed()
+    print(p)
+  }
+  
+  ggsave(filename = 'figure3/slingPseudotime_6.SVG', p, width = 9, height = 5)
+  
+  # Subset and sample cells
+  coldata <- colData(sim)
+  colors <- colorRampPalette(brewer.pal(11, 'Spectral')[-6])(100)
+  plotcol <- colors[cut(sim$slingPseudotime_6, breaks = 100)]
+  plotcol[is.na(plotcol)] <- "lightgrey"
+    coldata@listData$plotcol <- plotcol
+    coldata <- data.frame(celltype = coldata@listData$celltype,
+                          sampleId = coldata@listData$sampleId,
+                          plotcol = coldata@listData$plotcol)
+    
+    rownames(coldata) <- sim@colData@rownames
+    
+    filter_cell <- dplyr::filter(coldata, plotcol != "lightgrey")
+    filter_cell <- rownames(filter_cell)
+    head(filter_cell)
+    counts <- sim@assays@data@listData$counts
+    filter_counts <- counts[, filter_cell]
+    filter_counts[1:5, 1:5]
+    
+    set.seed(111)
+    scell <- sample(colnames(filter_counts), size = 1000, replace = T)
+    
+    filter_counts <- filter_counts[, scell]
+    dim(filter_counts)
+    
+    filter_sim <- SingleCellExperiment(assays = List(counts = filter_counts))
+    
+    filter_coldata <- colData(sim)[scell, 1:3]
+    filter_sim@colData <- filter_coldata
+    
+    rd <- reducedDim(sim)
+    filter_rd <- rd[scell, ]
+    reducedDims(filter_sim) <- SimpleList(UMAP = filter_rd)
+    
+    # K-Means clustering
+    set.seed(111)
+    cl <- kmeans(filter_rd, centers = 4)$cluster
+    head(cl)
+    colData(filter_sim)$kmeans <- cl
+    
+    library(RColorBrewer)
+    mycolors <- brewer.pal(4, "Set1")
+    
+    plt_k <- data.frame(filter_rd,
+                        kmeans_clusters = factor(cl, levels = sort(unique(cl))))
+    ggplot(plt_k, aes(UMAP.1, UMAP.2)) +
+      geom_point(aes(color = kmeans_clusters), size = .5) +
+      scale_color_manual(values = mycolors) +
+      theme_bw() +
+      theme(panel.grid = element_blank(),
+            axis.text = element_blank(),
+            axis.ticks = element_blank()) +
+      xlab('UMAP.1') +
+      ylab('UMAP.2') +
+      guides(color = guide_legend(override.aes = list(size = 5)))
+    
+    filter_sim <- slingshot(filter_sim,
+                            clusterLabels = 'kmeans',
+                            reducedDim = 'UMAP',
+                            start.clus = "2",
+                            end.clus = "3"
+    )
+    head(colnames(colData(filter_sim)))
+    
+    plot(reducedDims(filter_sim)$UMAP, pch = 16, asp = 1)
+    lines(SlingshotDataSet(filter_sim), lwd = 2, col = mycolors)
+    
+    library(tradeSeq)
+    
+    # tradeSeq analysis
+    counts <- filter_sim@assays@data$counts
+    crv <- SlingshotDataSet(filter_sim)
+    
+    set.seed(111)
+    pseudotime <- slingPseudotime(crv, na = FALSE)
+    cellWeights <- slingCurveWeights(crv)
+    system.time({
+      sce <- fitGAM(counts = counts,
+                    pseudotime = pseudotime,
+                    cellWeights = cellWeights,
+                    nknots = 6,
+                    verbose = FALSE)
+    })
+    table(rowData(sce)$tradeSeq$converged)
+    
+    assoRes <- associationTest(sce)
+    head(assoRes)
+    
+    startRes <- startVsEndTest(sce)
+    head(startRes)
+    
+    oStart <- order(startRes$waldStat, decreasing = TRUE)
+    
+    sigGeneStart <- names(sce)[oStart[1]]
+    count_mat <- assay(sce, "counts")
+    class(count_mat)
+    
+    plotSmoothers(sce, count_mat, gene = sigGeneStart)
+    
+    # Prepare data for gene expression plots
+    colors <- colorRampPalette(brewer.pal(11, 'Spectral')[-6])(100)
+    plotcol <- colors[cut(sim$slingPseudotime_1, breaks = 100)]
+    plotcol[is.na(plotcol)] <- "lightgrey"
+      sim@colData$plotcol <- plotcol
+      coldata <- data.frame(celltype = sim@colData$celltype,
+                            plotcol = sim@colData$plotcol)
+      
+      rownames(coldata) <- colnames(sim)
+      
+      filter_coldata <- coldata[colnames(sce), ]
+      
+      filter_coldata$Pseudotime <- sce$crv$pseudotime.Lineage1
+      
+      top6 <- names(sce)[oStart[1:1000]]
+      top6_exp <- sce@assays@data$count[top6, ]
+      top6_exp <- log2(top6_exp + 1) %>% t()
+      
+      plt_data <- cbind(filter_coldata, top6_exp)
+      colnames(plt_data)
+      
+      color_function <- colorRamp(c("blue", "white", "red"))
+      
+      plt_data$norm_pseudo <- (plt_data$Pseudotime - min(plt_data$Pseudotime)) / 
+        (max(plt_data$Pseudotime) - min(plt_data$Pseudotime))
+      
+      rgb_colors <- color_function(plt_data$norm_pseudo)
+      
+      plt_data$col <- rgb(rgb_colors[,1], rgb_colors[,2], rgb_colors[,3], maxColorValue = 255)
+      colo <- c("#B54868", "#DE756D", "#F5B57F", "#F9E3AB", "#CBE3AF", "#6DB1BB", "#727AB1")
+      mycolors <- colorRampPalette(colo)(329)
+      
+      options(ggpubr.parse_aes = FALSE)
+      
+      plt_list <- list()
+      for (gene in top6) {
+        print(gene)
+        p <- ggplot(plt_data, aes(x = Pseudotime, y = .data[[gene]], color = celltype)) +
+          geom_point(size = 0.6) +
+          geom_smooth(se = F, color = 'orange') +
+          theme_bw() +
+          scale_color_manual(values = mycolors) +
+          theme(legend.position = 'none') +
+          labs(title = gene)
+        plt_list[[gene]] <- p
+      }
+      
+      library(patchwork)
+      wrap_plots(plt_list)
+      ggsave(filename = 'figures/05_top6_genes.pdf', width = 9, height = 5)
+      
+      # Single gene
+      p <- ggplot(plt_data, aes(x = Pseudotime, y = KLF4, color = col)) +
+        geom_point(size = 2, alpha = 1) +
+        geom_smooth(se = FALSE, color = 'orange') +
+        theme_bw() +
+        scale_color_manual(values = mycolors) +
+        theme(
+          legend.position = 'none',
+          axis.text = element_text(size = 25),
+          axis.title = element_text(size = 25),
+          plot.title = element_text(size = 28, hjust = 0.5)
+        )
+      p
