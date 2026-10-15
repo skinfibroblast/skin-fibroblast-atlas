@@ -12,46 +12,6 @@ import logging
 import sys
 import traceback
 
-# load reference and train regression model
-adata_ref = sc.read_h5ad("adata_ref.h5ad")
-
-RegressionModel.setup_anndata(adata_ref, batch_key='orig.ident', labels_key='celltype')
-mod = RegressionModel(adata=adata_ref)
-
-print("Training reference model (200 epochs)...")
-mod.train(
-    max_epochs=200,
-    batch_size=3000,
-    train_size=1,
-    lr=0.002,
-    datasplitter_kwargs={'num_workers': 7}
-)
-
-# export posterior and save
-adata_ref = mod.export_posterior(
-    adata_ref,
-    sample_kwargs={'num_samples': 500, 'batch_size': 1280}
-)
-
-mod.save("./my_reference_model3/", overwrite=True)
-adata_ref.write("./adata_ref_cell2location.h5ad")
-
-# export reference cell-type signatures (inf_aver)
-if 'means_per_cluster_mu_fg' in adata_ref.varm.keys():
-    inf_aver = adata_ref.varm['means_per_cluster_mu_fg'][
-        [f'means_per_cluster_mu_fg_{i}' for i in adata_ref.uns['mod']['factor_names']]
-    ].copy()
-else:
-    inf_aver = adata_ref.var[
-        [f'means_per_cluster_mu_fg_{i}' for i in adata_ref.uns['mod']['factor_names']]
-    ].copy()
-
-inf_aver.columns = adata_ref.uns['mod']['factor_names']
-inf_aver.to_csv("./inf_aver.csv")
-print("inf_aver saved, shape:", inf_aver.shape)
-
-mod.plot_QC()
-
 # the following files can be loaded directly
 # load posterior reference data
 adata_ref = sc.read_h5ad("./adata_ref_cell2location.h5ad")
