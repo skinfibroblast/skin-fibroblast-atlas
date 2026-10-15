@@ -1,0 +1,114 @@
+load(.../All_FB.Rdata)
+# Build Monocle3 object
+library(monocle3)
+library(Seurat)
+library(tidyverse)
+expression_matrix <- All_FB@assays$RNA@data
+cell_metadata <- data.frame(All_FB@meta.data)
+gene_annotation <- data.frame(expression_matrix[, 1])
+gene_annotation[, 1] <- row.names(gene_annotation)
+colnames(gene_annotation) <- c("gene_short_name")
+
+cds <- new_cell_data_set(expression_matrix,
+                         cell_metadata = cell_metadata,
+                         gene_metadata = gene_annotation)
+
+# Preprocess
+cds <- preprocess_cds(cds, num_dim = 50, norm_method = c("none"))
+
+# Batch alignment
+cds <- align_cds(cds, alignment_group = "orig.ident")
+
+# Dimension reduction
+cds <- reduce_dimension(cds, cores = 5)
+
+# Clustering
+cds <- cluster_cells(cds, resolution = 0.0000001)
+
+# Trajectory graph
+cds <- learn_graph(cds)
+
+# Root selection
+myselect <- function(cds, select.classify, my_select) {
+  cell_ids <- which(colData(cds)[, select.classify] == my_select)
+  closest_vertex <-
+    cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+  root_pr_nodes <-
+    igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+                                                              (which.max(table(closest_vertex[cell_ids, ]))))]
+  root_pr_nodes
+}
+cds <- order_cells(cds, root_pr_nodes = myselect(cds, select.classify = 'celltype', my_select = "PI16+ Fb"))
+
+# Use Seurat UMAP
+cds.embed <- cds@int_colData$reducedDims$UMAP
+int.embed <- Embeddings(All_FB, reduction = "umap")
+int.embed <- int.embed[rownames(cds.embed), ]
+cds@int_colData$reducedDims$UMAP <- int.embed
+
+# Plot cells
+library(ggplot2)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+a <- plot_cells(cds, color_cells_by = "celltype",
+                label_cell_groups = FALSE,
+                label_leaves = FALSE,
+                label_branch_points = FALSE,
+                graph_label_size = 1) + scale_color_manual(values = col) +
+  theme(axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 20),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 20)); a
+b <- plot_cells(cds, color_cells_by = "pseudotime",
+                show_trajectory_graph = T, trajectory_graph_color = "black",
+                label_branch_points = F, label_roots = F, label_principal_points = F,
+                label_leaves = F, alpha = 0.5, min_expr = 0.5) +
+  theme(axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 20),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 20)); b
+}
+
+# Export pseudotime to Seurat
+colData(cds)$pseudotime <- pseudotime(cds)
+cds_meta <- as.data.frame(colData(cds))
+cds_meta$pseudotime[is.infinite(cds_meta$pseudotime)] <- NA
+print(sum(is.na(cds_meta$pseudotime)))
+mean_pt <- tapply(cds_meta$pseudotime, cds_meta$celltype, mean, na.rm = TRUE)
+print(sort(mean_pt))
+
+colData(cds)$pseudotime <- pseudotime(cds)
+cds_meta <- as.data.frame(colData(cds))
+cds_meta$pseudotime[is.infinite(cds_meta$pseudotime)] <- NA
+pt_df <- data.frame(
+  cell       = rownames(cds_meta),
+  celltype   = cds_meta$celltype,
+  pseudotime = cds_meta$pseudotime,
+  stringsAsFactors = FALSE
+)
+print(dim(pt_df))
+print(head(pt_df))
+print(sum(is.na(pt_df$pseudotime)))
+print(sum(is.infinite(pt_df$pseudotime)))
+
+head(colnames(All_FB))
+head(pt_df$cell)
+
+rownames(pt_df) <- pt_df$cell
+common_cells <- intersect(colnames(All_FB), rownames(pt_df))
+print(length(common_cells))
+print(length(colnames(All_FB)))
+print(length(rownames(pt_df)))
+
+pt_matched <- pt_df[colnames(All_FB), "pseudotime"]
+print(length(pt_matched))
+print(ncol(All_FB))
+
+All_FB$pseudotime_monocle3 <- pt_matched
