@@ -1,0 +1,138 @@
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(patchwork)
+library(devtools)
+library(SingleR)
+library(CellChat)
+library(paletteer)
+library(ggplot2)
+library(scRNAtoolVis)
+library(reticulate)
+library(pheatmap)
+library(harmony)
+library(RColorBrewer)
+library(scales)
+library(ggrastr)
+library(ggrepel)
+library(Matrix)
+library(Nebulosa)
+library(scCustomize)
+library(STdeconvolve)
+library(png)
+library(ComplexHeatmap)
+library(circlize)
+library(scater)
+library(ggforce)
+library(ggpubr)
+library(reshape2)
+library(spacexr)
+library(msigdbr)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(wesanderson)
+library(grid)
+library(tidyr)
+library(rstatix)
+library(decoupleR)
+library(tibble)
+library(plotly)
+library(htmlwidgets)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(patchwork)
+library(ggplot2)
+library(pheatmap)
+library(Seurat)
+library(progeny)
+library(Seurat)
+library(decoupleR)
+library(viridis)
+library(SeuratData) 
+library(Seurat)
+library(cowplot)
+library(slingshot)
+library(tradeSeq)
+library(BiocParallel)
+library(SingleCellExperiment)
+library(qs)
+library(enrichplot)
+
+col<-c("#FB9A99","#9370DB","#800080","#C73E3A","#FDBF6F","#1F78B4","#B3D88B","#FF7F00","#64B482","#DDA0DD",'#bf033b',"darkred","#A0522D", "#DAA520", "#FFC0CB","#800080","#9370DB", "#DDA0DD",  "#7FFFD4", "#00CED1", "#AFEEEE")
+col2 <- c("#440154FF", "#3B518BFF", "#20938CFF", "#6ACD5AFF", "#FDE725FF")
+
+load("...\\All_FB.Rdata")
+
+All_FB@assays$RNA@counts[1:2,]
+  All_FB <- FindVariableFeatures(All_FB, selection.method = "vst", nfeatures = 10000)
+  hvgs <- VariableFeatures(All_FB)
+  
+  mat <- GetAssayData(All_FB, slot = "data")[hvgs, ]
+  mat <- as.matrix(mat)
+  net <- get_collectri(organism='human', split_complexes=FALSE)
+  
+  acts2 <- run_ulm(mat=mat, net=net, .source='source', .target='target',
+                   .mor='mor', minsize = 5)
+  Idents(All_FB)<-All_FB$celltype
+  
+  All_FB[['tfsulm']] <- acts2 %>%
+    pivot_wider(id_cols = 'source', 
+                names_from = 'condition',
+                values_from = 'score') %>%
+    column_to_rownames('source') %>%
+    Seurat::CreateAssayObject(.)
+  
+  DefaultAssay(object = All_FB) <- "tfsulm"
+  
+  All_FB <- ScaleData(All_FB)
+  All_FB@assays$tfsulm@data <- All_FB@assays$tfsulm@scale.data
+  
+  n_tfs <- 50
+  
+  df <- t(as.matrix(All_FB@assays$tfsulm@data)) %>%
+    as.data.frame() %>%
+    mutate(cluster = Idents(All_FB)) %>%
+    pivot_longer(cols = -cluster, 
+                 names_to = "source", 
+                 values_to = "score") %>% 
+    group_by(cluster, source) %>% 
+    summarise(mean = mean(score))
+  
+  tfs <- df %>%
+    group_by(source) %>%
+    summarise(std = sd(mean)) %>%
+    arrange(-abs(std)) %>%
+    head(n_tfs) %>%
+    pull(source)
+  
+  top_acts_mat <- df %>%
+    filter(source %in% tfs) %>%
+    pivot_wider(id_cols = 'cluster', 
+                names_from = 'source',
+                values_from = 'mean') %>%
+    column_to_rownames('cluster') %>%
+    as.matrix()
+  
+  palette_length = 500
+  my_color = colorRampPalette(c("#1F78B4", "white","#C73E3A"))(palette_length)
+  my_breaks <- c(seq(-3, 0, length.out=ceiling(palette_length/2) + 1),
+                 seq(0.05, 3, length.out=floor(palette_length/2)))
+  
+  table(All_FB$celltype)
+  colnames_order <- c('CTHRC1+ Fb','LAMP5+ Fb',"LRRC15+ Fb", 'COL4A1+ Fb','MMP1+ Fb',  'CCL19+ Fb', 
+                      'TNFAIP6+ Fb', 'PI16+ Fb','AQP1+ Fb','IGKC+ Fb',  'APCDD1+ Fb',
+                      'COCH+ Fb','KRT+ Fb',  'IGFBP2+ Fb',  'ANGPTL7+ Fb', 'S100B+ Fb')
+  
+  top_acts_mat_ordered <- top_acts_mat[colnames_order, , drop = FALSE]
+  a <- pheatmap(t(top_acts_mat_ordered), 
+                border_color = NA,
+                color = my_color, 
+                breaks = my_breaks,
+                cluster_rows = T,
+                cluster_cols = F,  
+                labels_col  = colnames_order,
+                fontsize_row = 10, 
+                fontsize_col = 10  
+  );a
+  ggsave("Figure3\\TF.svg", plot = a, width = 4, height =5.5)
